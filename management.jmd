@@ -1,0 +1,308 @@
+We'll set up a management model for running impacts of various management responses.
+
+```{julia; results=hidden}
+function build_fullruleset(eradication_effect, local_effect, trap_density, trap_radius, reporting_threshold)
+   detection_rate = 0.0041
+   trap_coverage = 0.1
+   trap_operation_cost = 1000.0
+   juristiction_scalar = 0.5
+   croploss_fraction = 0.1
+   eradication_costperkm = 1000u"km^-2"
+   cell_mean_traps = trap_density * cellkms
+
+   trapmode = ProbabilisticDetectionMode(detection_rate, trap_coverage)
+   trap_detection = Biosecurity.TrapDetection(;
+      traps=:traps,
+      detected=:detected,
+      population=:population,
+      detectionmode=trapmode,
+   )
+   thresholdmode = ThresholdDetectionMode(reporting_threshold)
+   late_detection = Biosecurity.Detection(;
+      detected=:detected,
+      population=:population,
+      detectionmode=thresholdmode,
+   )
+   settraps = Biosecurity.SetTraps(;
+      detectedgrid=:detected,
+      trapgrid=:traps,
+      neighborhood=RadialNeighborhood{trap_radius}(),
+      meantraps=cell_mean_traps,
+   )
+   # Human disp is set up in spread.jmd
+   quarantined_human_dispersal = QuarantinedHumanDispersal(;
+      population=:population,
+      local_quarantine=:detected,
+      region_quarantine=:traps, # Hack - this is commented out in Bosecurity.jl
+      rule=humandisp,
+      local_effect=local_effect,
+      region_effect=0.0,
+   )
+   eradication = let (ee, cc) = (eradication_effect, carrycap)
+      Map{Tuple{:population,:detected,:traps},:population}() do population, detected, traps
+          if detected == oneunit(detected) && traps > zero(traps)
+             min(population, (oneunit(ee) - ee) * cc)
+          else
+             population
+          end
+      end
+   end
+
+   # Costs
+   trap_cost = Map{Tuple{:traps,:cost},:cost}() do traps, cost
+       if traps > 0
+          cost + traps * trap_operation_cost / 12
+       else
+          cost
+       end
+   end
+   croploss_cost = DynamicThresholdCost(;
+       inputgrid=:population,
+       costgrid=:cost,
+       cellvalue=cropvalue,
+       scalar=croploss_fraction / 12, # Scale from years to months
+       threshold=1.0,
+   )
+   eradication_cost = DynamicCost(;
+       inputgrid=:detected,
+       costgrid=:cost,
+       cellvalue=1.0,
+       scalar=cellkms * eradication_costperkm * eradication_effect / 12,
+   )
+   local_quarantine_cost = DynamicCost(;
+       inputgrid=:detected,
+       costgrid=:cost,
+       cellvalue=cropvalue,
+       scalar=local_effect / 12, # Convert from years to months (the timestep)
+   )
+
+   # Ruleset
+   Ruleset(
+      localdisp, allee, growth,
+      settraps,
+      late_detection,
+      trap_detection,
+      eradication,
+      quarantined_human_dispersal,
+      croploss_cost, eradication_cost, local_quarantine_cost, trap_cost;
+
+      init=fullinit,
+      mask=boolmask,
+      timestep=timestep,
+      opt=SparseOpt(),
+   )
+end
+```
+
+```{julia; results=hidden}
+randominit!(population, (lat, lon), growthmask) = begin
+   # this only works if population is initialised at low numbers, otherwise late detection is triggered
+   population .= 0.0
+   randomjump = 0
+   i, j = DimensionalData.dims2indices(dims(populationgrid), (Lat(Contains(lat)), Lon(Contains(lon))))
+   sze = size(population)
+   i2, j2 = i, j
+   for x in 1:100
+      i2 = i + rand(0:randomjump)
+      j2 = j + rand(0:randomjump)
+      if i2 > 0 && i2 < sze[1] && j2 > 0 && j2 < sze[2] && growthmask[i2, j2]
+         break
+      end
+   end
+   println("attempted incursion: ", (i2, j2))
+   population[i2, j2] = carrycap
+   i2, j2
+end
+```
+
+```{julia; results=hidden}
+fullinit = (
+   population=deepcopy(populationgrid),
+   detected=deepcopy(detectedgrid),
+   traps=deepcopy(trapgrid),
+   cost=deepcopy(costgrid),
+)
+cellkms = (9u"km")^2
+fullprocessor = LayoutProcessor(
+   [:population :detected; :traps :cost],
+   (viridis, jet, autumn, inferno)
+)
+```
+
+
+Run a simulation in interact:
+
+```{julia; results=hidden}
+using DynamicGridsInteract
+
+fullinit[:cost] .= 0
+randominit!(fullinit[:population], incursionpoints[:Melbourne], growthmask)
+init_trapgrid!(fullinit[:traps], incursionpoints)
+tspan = DateTime(2020, 1), DateTime(2023, 1)
+trange = tspan[1]:timestep:tspan[2]
+nframes = length(trange)
+
+trap_density        = 10.0u"km^-2"
+trap_radius         = 1
+local_effect        = 0.9999
+eradication_effect  = 0.9999
+reporting_threshold  = carrycap * 0.5
+
+fullruleset = build_fullruleset(eradication_effect, local_effect, trap_density, trap_radius, reporting_threshold)
+
+output = InteractOutput(fullinit, fullruleset;
+    tspan=tspan,
+    fps=100,
+    store=true,
+    processor=fullprocessor,
+    minval=(zero(carrycap), nothing, -1, 0.0),
+    maxval=(carrycap, nothing, 3, 1e6)
+);
+display(output)
+
+# output = ArrayOutput(fullinit, nframes)
+# @time sim!(output, fullruleset; tspan=tspan);
+
+# plot(output[37][:traps])
+# sum(output[37][:cost])
+# GeoData.write("output/test.tif", GDALarray, output[37][:cost])
+# A = output[37][:population]
+# CSV.write("output/FileName.csv",  DataFrame(A), writeheader=false)
+```
+
+Save a gif:
+```{julia; results=hidden}
+savegif("management_sim_low.gif", output, fullruleset; fps=6, )
+```
+
+Run replicates:
+
+```{julia; results=hidden}
+using DataFrames, CSV
+
+# Run for 3 years!!!!
+tspan = DateTime(2020, 1), DateTime(2023, 1)
+trange = tspan[1]:timestep:tspan[2]
+nframes = length(trange)
+trapmask = growthmask
+
+# eradication_effects         = [0.0, 0.5, 0.99, 0.9999, 0.999999]
+# local_quarantine_effects    = [0.0, 0.5, 0.99, 0.9999]
+# trap_densities              = [0.0, 0.0001, 0.001, 0.01, 0.1, 1.0] .* u"km^-2"
+# trap_radii                  = [1, 5, 10]
+
+eradication_effects         = [0.0, 0.9999]
+local_quarantine_effects    = [0.0, 0.9999]
+trap_radii                  = [1]
+trap_densities              = [0.0, 0.0001, 0.001, 0.01, 0.1, 1.0] .* u"km^-2"
+education = [true, false]
+
+nreps = 5 #30
+
+trap_operation_cost = 1000.0
+croploss_threshold = 1.0
+eradication_costperkm = 3e5u"km^-2"
+
+sensitivity = [DataFrame(
+   incursion = Symbol[],
+   eradication = Float64[],
+   local_quarantine = Float64[],
+   trap_density =  Float64[],
+   trap_radii =  Int[],
+   education =  Bool[],
+   replicate = Int[],
+   timestep = Int[],
+   area = Float64[],
+   c_traps = Float64[],
+   c_eradication = Float64[],
+   c_quarantine = Float64[],
+   c_industry = Float64[],
+) for thread in 1:Threads.nthreads()]
+
+incursionpoints1 = (
+  Melbourne = (-37.805896, 144.959527),
+  Sydney = (-33.839943, 151.006101),
+  Adelaide = (-34.901608, 138.601547),
+  Hobart = (-42.881742, 147.323879),
+  Brisbane = (-27.43619, 152.990588),
+  Perth = (-31.9505, 115.8605)
+)
+
+@time for (loc, point) in zip(keys(incursionpoints1), incursionpoints1),
+    e in eradication_effects,
+    l in local_quarantine_effects,
+    t in trap_densities,
+    r in trap_radii,
+    edu in education
+
+     # eduction decreases crop loss and reporting threshold
+    if edu
+      i_croploss_fraction = 0.05
+      i_reporting_threshold = 1e5
+    else
+      i_croploss_fraction = croploss_fraction
+      i_reporting_threshold = reporting_threshold
+    end
+   println("running: ", (incursion=loc, eradication=e, loc_quarantine=l, trap_radius=r, trap_density=t, education=edu, nreps=nreps))
+   # Threads.@threads
+   for rep in 1:nreps
+      # Initialise
+      randominit!(fullinit[:population], point, growthmask)
+      init_trapgrid!(fullinit[:traps], incursionpoints)
+      fullinit[:cost] .= 0.0
+      output = ArrayOutput(fullinit, nframes)
+
+      ruleset = build_fullruleset(e, l, t, r, i_reporting_threshold)
+      sim!(output, ruleset; tspan=tspan)
+      for f in 1:length(output)
+         area = count(x -> x > 0.0, output[f][:population]) * cellkms / u"km^2"
+         c_traps = sum((output[f][:traps] .> 0) .* output[f][:traps] .* trap_operation_cost / 12)
+         c_eradication = sum((output[f][:traps] .> 0) .* output[f][:detected] .* eradication_costperkm .* cellkms .* e ./ 12)
+         c_quarantine = sum(output[f][:detected] .* cropvalue .* l ./ 12)
+         c_industry = sum((output[f][:population] .>= 1) .* cropvalue ./ 12 .* i_croploss_fraction)
+         push!(sensitivity[Threads.threadid()], (loc, e, l, t*u"km^2", r, edu, rep, f, area, c_traps, c_eradication, c_quarantine, c_industry))
+      end
+   end
+   yield()
+end
+CSV.write("output/sensitivity.csv", vcat(sensitivity...))
+```
+
+Plot using facets in R
+
+```{julia; results=hidden}
+using RCall
+R"""
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+"""
+
+R"""
+for (i in incursions)
+   output %>%
+   filter(incursion==i)
+   group_by(eradication, local_quarantine, juristiction_quarantine, trap_density) %>%
+   summarise(meanarea = mean(area),
+                      meancost = mean(cost)) %>%
+   ggplot(aes(trap_density, cost, color = eradication )) +
+   geom_line() +
+   facet_grid( local_quarantine ~ juristiction_quarantine )
+   ggsave(paste0(i, ".png"))
+end
+"""
+```
+
+```{julia; results=hidden}
+using DynamicGridsInteract
+output = InteractOutput(fullinit, fullruleset;
+   fps=100,
+   store=true,
+   processor=fullprocessor,
+   minval=(minimum(growthrates_zeromissing), nothing, nothing, nothing, 0.0),
+   maxval=(1e6, nothing, nothing, nothing, 1e8),
+)
+display(output.page)
+output.running = false
+sim!(output, fullruleset; tspan=tspan)
+```

@@ -1,0 +1,218 @@
+# Setup
+
+First, load the required packages. Dates is a core julia package that
+give us date/time handling, GeoData simplifies the loading of geospatial
+raster files. It requires also loading NCDatasets.jl and ArchGDAL.jl to load
+NetCDF and GeoTiff files, respectively.
+
+```{julia; results=hidden}
+using DimensionalData, GeoData, ArchGDAL, Dispersal, Biosecurity
+using Statistics, Dates, Plots, Unitful
+using DimensionalData: setdims, rebuild, Between
+using ColorSchemes, Colors
+basedir = ""
+gr()
+```
+
+### Define simulation settings
+
+We use DateTime unitsof months for the timestep:
+
+```{julia; results=hidden}
+timestep = Month(1)
+lonmin = 113.3402
+lonmax = 153.9523
+latmin = -43.62234
+latmin = -43.56234 # Fix for geodata tiff/netcdf load save errors
+latmax = -10.65125
+aust = Lon(Between(lonmin, lonmax)), Lat(Between(latmin, latmax))
+usa = Lon(Between(-125.0, -66.96)), Lat(Between(25.0, 49.5))
+incursionpoints = (
+    Melbourne=(-37.805896, 144.959527),
+    Mildura=(-34.219504, 142.130864),
+    Coffs_Harbour=(-30.287245, 153.092991),
+    Sydney=(-33.839943, 151.006101),
+    Adelaide=(-34.901608, 138.601547),
+    Port_Augusta=(-32.466201, 137.813850),
+    Devonport=(-41.180545, 146.314887),
+    Hobart=(-42.881742, 147.323879),
+    Brisbane=(-27.436190, 152.990588),
+    Cairns=(-16.937281, 145.747709),
+    Perth=(-31.9505, 115.8605),
+    Geraldton=(-28.778138, 114.615632),
+    Florida=(27.848432, -81.428896)
+
+)
+
+incursionpointstatekeys = (
+    Melbourne = (:Vic),
+    Mildura	 = (:Vic),
+    Coffs_Harbour =	(:NSW),
+    Sydney = (:NSW),
+    Adelaide = (:SA),
+    Port_Augusta = (:SA),
+    Devonport  = (:Tas),
+    Hobart = (:Tas),
+    Brisbane = (:QLD),
+    Cairns = (:QLD),
+    Perth =	(:WA),
+    Geraldton =	(:WA)
+)
+```
+
+## Define a RuleSet
+
+This will involve combining multiple dispersal componenents into a single
+`RuleSet` object: population growth, local dispersal, Allee effects, and human
+dispersal.
+
+### Climate driven population growth
+
+Load the growthrates .16layer from netcdf:
+
+```{julia; eval=false}
+using NCDatasets, Setfield
+growthratesfilename = "growthrates.ncd"
+growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
+growthrates = NCDarray(growthratesfilepath) |>
+    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
+    x->permutedims(x, (Lat, Lon, Ti)) |>
+    x->reverse(x; dims=Lat)[usa...]
+size(growthrates)
+plot(growthrates[Ti(1)],clim=(0,.15))
+
+```
+
+Or From multiple tif files:
+
+```{julia; eval=false}
+# growthrates_filenames = ["data/growthrates_tifs/limited_growth_2017_$n.tif"
+#                             for n in lpad.(string.(1:12), 2, "0")]
+# grtifs = GDALarray.(growthrates_filenames; name="Growth Rate", usercrs=EPSG(4326))
+# growthratesvec = (A -> A[Band(1)]).(grtifs)
+# growthtimespan = DateTime(2017,1):Month(1):DateTime(2017,12)
+# growthrates = cat(growthratesvec...; dims=Ti(growthtimespan))
+# growthratesvec = (A -> A[Band(1), aust...]).(grtifs)
+# growthrates = cat(growthratesvec...; dims=Ti(growthtimespan)) |>
+#     x->permutedims(x, (Lat, Lon, Ti))
+# plot(growthrates[Ti(3)])
+```
+
+
+
+### Define masking layers
+
+The boolean mask lets the simulation know which cells should be ignored.
+The missing mask can be used to mask maps before plotting.
+
+```{julia; results=hidden}
+boolmask = GeoData.boolmask(growthrates[Ti(1)])
+missingmask = GeoData.missingmask(growthrates[Ti(1)])
+plot(boolmask)
+plot(missingmask)
+# Remove missing values from the growthrates array. We don't want them to propagate through the simulation.
+growthrates_zeromissing = replace_missing(growthrates, 0.0)
+growthmask = rebuild(boolmask, mean(growthrates_zeromissing; dims=Ti)[Ti(1)] .* boolmask .> 0)
+growthmask |> plot
+
+# Check out growthrates and cropvalue arrays match
+# Broken...
+# @assert all(dims(states, Lat).val .≈ dims(growthrates, Lat).val)
+# @assert all(dims(states, Lon).val .≈ dims(growthrates, Lon).val)
+```
+
+Plot the growth layer:
+
+```{julia; results=hidden}
+plot(growthrates[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
+plot(mean(growthrates; dims=Ti()); clims=(0, 0.15))
+```
+
+
+
+## Define Rules
+
+
+Create a `ExactLogisticGrowthMap` rule from the layer, here we use
+unitful units for the layers' time dimension:
+
+```{julia; results=hidden}
+carrycap = 1e8
+growth = ExactLogisticGrowthMap{:population,:population}(
+    layer=growthrates_zeromissing,
+    carrycap=carrycap,
+    timestep=Day(1)
+);
+```
+
+### Local dispersal
+
+Local dispersal simulates natural dispersal of populations, according
+to ability to fly or use other mechanisms.
+
+```{julia; results=hidden}
+λ = 0.0125
+radius = 1
+
+@time hood = DispersalKernel{radius}(
+    formulation=ExponentialKernel(λ),
+    distancemethod=AreaToArea(30),
+)
+localdisp = InwardsPopulationDispersal{:population,:population}(hood)
+hood.kernel |> heatmap
+savefig("output/dispersal_kernel.png")
+```
+
+### Allee effects
+
+Allee effects specify minimum population required to sustain growth
+within a cell. Populations below the `minfounders` threshold will be removed.
+
+```{julia; results=hidden}
+allee = AlleeExtinction{:population,:population}(minfounders=22.0);
+```
+
+
+### Define initialisation data
+
+Make a zeros array and populate the starting cells. We need to replace the `missing`
+values with something else Dispersal.jl init can't contain `missing` or it will spread everywhere:
+
+```{julia; results=hidden}
+populationgrid = replace_missing(zero(growthrates[Ti(1)]), NaN)
+init_popgrid!(popgrid, (lat, lon), initsize) = begin
+   popgrid .= 0.0
+   popgrid[Lat(Contains(lat)), Lon(Contains(lon))] = initsize
+end
+
+init_popgrid!(populationgrid, incursionpoints[:Florida], carrycap)
+```
+
+### Define a combined ruleset
+```{julia; results=hidden}
+dispersalruleset = Ruleset(
+    Chain(localdisp, allee, growth);
+    init=populationgrid,
+    mask=collect(boolmask),
+    timestep=timestep
+);
+```
+
+## Output
+Define some color processors to use in live simuulations.
+
+```{julia; results=hidden}
+zerocolor = RGB24(0.7)
+maskcolor = RGB24(0.0)
+oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor)
+jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor)
+viridis = ColorProcessor(ColorSchemes.viridis, zerocolor, maskcolor)
+inferno = ColorProcessor(ColorSchemes.inferno, zerocolor, maskcolor)
+magma = ColorProcessor(ColorSchemes.magma, zerocolor, maskcolor)
+blues = ColorProcessor(ColorSchemes.Blues_3, zerocolor, maskcolor)
+algae = ColorProcessor(ColorSchemes.algae, zerocolor, maskcolor)
+cyclic = ColorProcessor(ColorSchemes.cyclic_grey_15_85_c0_n256, zerocolor, maskcolor)
+rainbow1 = ColorProcessor(ColorSchemes.rainbow1, zerocolor, maskcolor)
+wistia = ColorProcessor(ColorSchemes.Wistia, zerocolor, maskcolor)
+autumn = ColorProcessor(ColorSchemes.Wistia, zerocolor, maskcolor)
+```
