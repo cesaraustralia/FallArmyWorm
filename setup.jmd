@@ -19,7 +19,7 @@ gr()
 We use DateTime unitsof months for the timestep:
 
 ```{julia; results=hidden}
-timestep = Month(1)
+timestep = Day(1)
 lonmin = 113.3402
 lonmax = 153.9523
 latmin = -43.62234
@@ -80,7 +80,6 @@ growthrates = NCDarray(growthratesfilepath) |>
     x->reverse(x; dims=Lat)[usa...]
 size(growthrates)
 plot(growthrates[Ti(1)],clim=(0,.15))
-
 ```
 
 Or From multiple tif files:
@@ -128,8 +127,6 @@ plot(growthrates[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
 plot(mean(growthrates; dims=Ti()); clims=(0, 0.15))
 ```
 
-
-
 ## Define Rules
 
 
@@ -152,7 +149,7 @@ to ability to fly or use other mechanisms.
 
 ```{julia; results=hidden}
 λ = 0.0125
-radius = 1
+radius = 5
 
 @time hood = DispersalKernel{radius}(
     formulation=ExponentialKernel(λ),
@@ -173,6 +170,13 @@ allee = AlleeExtinction{:population,:population}(minfounders=22.0);
 ```
 
 
+```{julia; results=hidden}
+jump = JumpDispersal{:population,:larvae}(
+    spotrange=10,
+    prob_threshold=0.1
+)
+```
+
 ### Define initialisation data
 
 Make a zeros array and populate the starting cells. We need to replace the `missing`
@@ -180,6 +184,7 @@ values with something else Dispersal.jl init can't contain `missing` or it will 
 
 ```{julia; results=hidden}
 populationgrid = replace_missing(zero(growthrates[Ti(1)]), NaN)
+degreedaygrid = deepcopy(populationgrid)
 init_popgrid!(popgrid, (lat, lon), initsize) = begin
    popgrid .= 0.0
    popgrid[Lat(Contains(lat)), Lon(Contains(lon))] = initsize
@@ -191,7 +196,7 @@ init_popgrid!(populationgrid, incursionpoints[:Florida], carrycap)
 ### Define a combined ruleset
 ```{julia; results=hidden}
 dispersalruleset = Ruleset(
-    Chain(localdisp, allee, growth);
+    Chain(localdisp, allee, growth), jump;
     init=populationgrid,
     mask=collect(boolmask),
     timestep=timestep

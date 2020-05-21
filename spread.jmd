@@ -34,6 +34,8 @@ output = InteractOutput(
     maxval=carrycap,
 )
 display(output)
+output = ArrayOutput((population=populationgrid,), 500)
+sim!(output, dispersalruleset; tspan=tspan, init=(population=populationgrid,))
 ```
 
 ```{julia; results=hidden}

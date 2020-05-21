@@ -20,7 +20,7 @@ These packages take care of loading and plotting data, and handling sci units an
 using GrowthMaps, Plots, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
 using GeoData, ArchGDAL, NCDatasets
 using Unitful: °C, K, cal, mol
-basedir = ""
+basedir = @__DIR__
 ```
 
 
@@ -48,10 +48,10 @@ If these are only estimated parameters, We can fit the model to a a dataset of g
 rate and temperature. First extract our independent and dependent variables from the example CSV:
 
 ```julia; results=hidden
-using CSV, DataFrames, Tables
-mkpath(joinpath(basedir, "build"))
-obsdata = CSV.File(joinpath(basedir, "swd_ecophys_data.csv"), select=[:x_value, :y_value, :y_key]) |> DataFrame
-obsdata = filter(d -> d.y_key == "r_m", obsdata) |> dropmissing
+# using CSV, DataFrames, Tables
+# mkpath(joinpath(basedir, "build"))
+# obsdata = CSV.File(joinpath(basedir, "swd_ecophys_data.csv"), select=[:x_value, :y_value, :y_key]) |> DataFrame
+# obsdata = filter(d -> d.y_key == "r_m", obsdata) |> dropmissing
 ```
 
 
@@ -59,15 +59,14 @@ Then extract the required data colummns, and convert temperature values from
 unitless Celcius to explit Kelvins, using Unitful.jl:
 
 ```julia; results=hidden
-obsrate = obsdata.y_value
-obstemp = obsdata.x_value * °C .|> K
-obs = collect(zip(obstemp, obsrate))
+# obsrate = obsdata.y_value
+# obstemp = obsdata.x_value * °C .|> K
+# obs = collect(zip(obstemp, obsrate))
 ```
 
 Now plot the growth rate curve:
 
 ```julia; results=hidden
-
 temprange = (270.0:0.1:320.0)u"K"
 p = plot(x -> GrowthMaps.rate(growth, x), temprange; label="growth rate")
 # scatter!(p, obs; label="observed ")
@@ -104,8 +103,10 @@ Using the monthly aggregated SMAP dataset
 
 ```julia; results=hidden
 using HDF5
-smap_folder = "F:\\SMAP\\SMAP_monthly_midpoint_subset"
-series = SMAPseries(smap_folder)
+smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
+tstart, tstop = DateTime(2017), DateTime(2018)
+days = (15,)
+smapseries = SMAPseries(smap_folder)[Where(t -> dayofmonth(t) in days)]
 ```
 
 Otherwise get the series from tiff files, which is a little more hands-on:
@@ -182,8 +183,8 @@ and run them:
 ```julia; results=hidden
 growthrates = mapgrowth((growth, heatstress, coldstress, wiltstress);
     series=series,
-    period=Year(1),
-    nperiods=1,
+    period=Month(1),
+    nperiods=12,
     startdate=first(bounds(series, Ti))
 )
 
@@ -332,18 +333,17 @@ using HDF5
 smappath = "/home/raf/Storage/Data/SMAP/SMAP_L4_SM_gph_v4"
 tstart, tstop = DateTime(2017), DateTime(2018)
 days = (1, 4, 8, 12, 16, 20, 23, 27)
-smapseries = SMAPseries(smappath)[Where(t -> t >= tstart && t < tstop && dayofmonth(t) in days)]
-@assert length(smapseries) == 12 * 8 * 8
+smapseries = SMAPseries(smappath)[Where(t -> dayofmonth(t) in days)]
 @time output = mapgrowth(
-    (growth, wiltstress, wetstress, coldstress, heatstress), smapseries;
+    (growth, wiltstress, coldstress, heatstress);
+    series=smapseries,
     period=Month(1),
     nperiods=12,
     startdate=tstart,
 );
 
 plot(output[Ti(1:3:12)]; axis=false)
-plot(growthrates[Ti(1:3:12)]; axis=false,  clims=(0.0, 0.15))
-plot(mean(growthrates, dims=Ti), clims=(0.0, 0.15))
+plot(mean(output, dims=Ti), clims=(0.0, 0.15))
 
 growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
 write(growthratesfilepath, NCDarray, output)
