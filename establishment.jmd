@@ -67,7 +67,8 @@ unitless Celcius to explit Kelvins, using Unitful.jl:
 Now plot the growth rate curve:
 
 ```julia; results=hidden
-temprange = (270.0:0.1:320.0)u"K"
+# TODO how to pass vector of values to rate
+temprange = K.( collect(1.0:40.0)*°C )
 p = plot(x -> GrowthMaps.rate(growth, x), temprange; label="growth rate")
 # scatter!(p, obs; label="observed ")
 ```
@@ -103,10 +104,11 @@ Using the monthly aggregated SMAP dataset
 
 ```julia; results=hidden
 using HDF5
-smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
+# smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
+smap_folder = "F:/SMAP/SMAP_monthly_midpoint_subset"
 tstart, tstop = DateTime(2017), DateTime(2018)
 days = (15,)
-smapseries = SMAPseries(smap_folder)[Where(t -> dayofmonth(t) in days)]
+series = SMAPseries(smap_folder)[Where(t -> dayofmonth(t) in days)]
 ```
 
 Otherwise get the series from tiff files, which is a little more hands-on:
@@ -171,9 +173,6 @@ wiltthresh = 0.1
 wiltmort = -0.2
 wiltstress = Layer(:land_fraction_wilting, WiltStress(wiltthresh, wiltmort));
 
-# wetthresh = 0.8
-# wetmort = -10
-# wetstress = Layer(:sm_surface_wetness, UpperStress(wiltthresh, wiltmort));
 ```
 
 
@@ -228,6 +227,33 @@ p = first(aggseries[1]) |> plot
 scatter!(p, occurrence; markersize=4.0, markercolor=:green, markershape=:circle, label="obs")
 ```
 
+Fit a model across the whole year to see where population growth is on average positive across the year.
+
+```julia; results=hidden
+coldthresh = 13.0°C |> K
+coldmort = -0.5 * K^-1
+coldstress = Layer(:surface_temp, K, ColdStress(coldthresh, coldmort))
+
+growthrates = mapgrowth((growth, coldstress, wiltstress);
+    series=aggseries,
+    period=Month(1),
+    nperiods=12,
+    startdate=first(bounds(series, Ti))
+) |> x->permutedims(x, (Lat, Lon, Ti))
+p = plot(growthrates[Ti([1,2,3,4]), usa...], clims=(0.0, 0.15), axis=false)
+# scatter!(p, occurrence; markersize=1.0, markeralpha=1, markerstrokecolor = :white, markershape=:circle, label="obs")
+```
+
+```julia; results=hidden
+growthrates = mapgrowth((growth, coldstress, heatstress, wiltstress);
+    series=aggseries,
+    period=Year(1),
+    nperiods=1,
+    startdate=first(bounds(series, Ti))
+) |> x->permutedims(x, (Lat, Lon, Ti))
+p = plot(growthrates[Ti(1),aust...], clims=(0.0, 0.15), axis=false)
+```
+
 As the combination of model is additive, we can prebuild parts of the model
 we don't want to fit manually, which simplifies the interfaces and helps performance.
 Seeing we allready fit the growth response to empiracle data, lets just fit
@@ -240,7 +266,7 @@ modelkwargs = (
     nperiods=1,
     startdate=first(bounds(series, Ti))
 )
-precomputed = mapgrowth(fittedgrowth; modelkwargs...)
+precomputed = mapgrowth(growth; modelkwargs...)
 ```
 
 Then fit the other components. `throttle` will dictate how fast the interface updates. Make it larger on a slow machine,
@@ -276,7 +302,7 @@ growthrates = mapgrowth((growth, wiltstress, coldstress, heatstress),
     nperiods=12,
     startdate=first(bounds(series, Ti))
 );
-plot(growthrates[Ti(1:3:12)]; clims=(0.0, 0.15), axis=false)
+# plot(growthrates[Ti(1:3:12)]; clims=(0.0, 0.15), axis=false)
 ```
 
 This is ready to use for projecting growthrates, or in a dispersal
@@ -284,8 +310,6 @@ simulation using Dispersal.jl. Lets save it as a NetCDF file:
 
 ```julia; results=hidden
 write("data/growthrates.ncd", NCDarray, growthrates)
-write("data/growthrates.grd", GrdArray, growthrates[Ti(1)])
-
 ```
 
 ![Growth Rates](../assets/growthrates.png)
@@ -330,10 +354,9 @@ whole process of loading real SMAP HDF5 files.
 ```julia
 using HDF5
 # Add the path to your SMAP data folder
-smappath = "/home/raf/Storage/Data/SMAP/SMAP_L4_SM_gph_v4"
 tstart, tstop = DateTime(2017), DateTime(2018)
 days = (1, 4, 8, 12, 16, 20, 23, 27)
-smapseries = SMAPseries(smappath)[Where(t -> dayofmonth(t) in days)]
+smapseries = SMAPseries(smap_folder)[Where(t -> dayofmonth(t) in days)]
 @time output = mapgrowth(
     (growth, wiltstress, coldstress, heatstress);
     series=smapseries,

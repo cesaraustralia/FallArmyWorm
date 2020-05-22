@@ -26,7 +26,8 @@ latmin = -43.62234
 latmin = -43.56234 # Fix for geodata tiff/netcdf load save errors
 latmax = -10.65125
 aust = Lon(Between(lonmin, lonmax)), Lat(Between(latmin, latmax))
-usa = Lon(Between(-125.0, -66.96)), Lat(Between(25.0, 49.5))
+usa = Lon(Between(-125.0, -66.96)), Lat(Between(20.0, 50))
+
 incursionpoints = (
     Melbourne=(-37.805896, 144.959527),
     Mildura=(-34.219504, 142.130864),
@@ -40,7 +41,8 @@ incursionpoints = (
     Cairns=(-16.937281, 145.747709),
     Perth=(-31.9505, 115.8605),
     Geraldton=(-28.778138, 114.615632),
-    Florida=(27.848432, -81.428896)
+    Florida=(27.848432, -81.428896),
+    Texas=(26.243250, -97.911040)
 
 )
 
@@ -56,7 +58,9 @@ incursionpointstatekeys = (
     Brisbane = (:QLD),
     Cairns = (:QLD),
     Perth =	(:WA),
-    Geraldton =	(:WA)
+    Geraldton =	(:WA),
+    Florida = (:USA),
+    Texas=(:USA)
 )
 ```
 
@@ -157,7 +161,7 @@ radius = 5
 )
 localdisp = InwardsPopulationDispersal{:population,:population}(hood)
 hood.kernel |> heatmap
-savefig("output/dispersal_kernel.png")
+# savefig("output/dispersal_kernel.png")
 ```
 
 ### Allee effects
@@ -168,10 +172,56 @@ within a cell. Populations below the `minfounders` threshold will be removed.
 ```{julia; results=hidden}
 allee = AlleeExtinction{:population,:population}(minfounders=22.0);
 ```
+# Long-distance dispersal
 
+For each cell, allocate a proportion of individuals to a random cell within a given radius.
+
+
+Make a quick rule for long distance dispersal.
 
 ```{julia; results=hidden}
-jump = JumpDispersal{:population,:larvae}(
+# using Mixers, FieldMetadata, FieldDefaults
+# abstract type AbstractJumpDispersal{R,W} <: PartialRule{R,W} end
+#
+# import FieldMetadata: @default, @description, @limits, @flattenable, @default_kw
+#                       default, description, limits, flattenable, default_kw
+#
+# import FieldDefaults: @default_kw,
+#                       default_kw
+# @chain columns @description @limits @flattenable @default_kw
+#
+# @mix @columns struct Probabilistic{PT}
+#     # Field            | Default | Flatn | Limits     | Description
+#     prob_threshold::PT | 0.1     | true  | (0.0, 1.0) | "A real number between one and zero"
+# end
+# @Probabilistic struct JumpDispersal2{R,W,SR} <: AbstractJumpDispersal{R,W}
+#     # Field       | Def  | Flatten | Limits       | Description
+#     spotrange::SR | 30.0 | true    | (0.0, 100.0) | "A number or Unitful.jl distance with the same units as cellsize"
+# end
+
+# TODO update this and test
+@inline applyrule!(rule::JumpDispersal{R,W}, data, state, index
+                  ) where {R,W} = begin
+    # Ignore empty cells
+    state > zero(state) || return state
+
+    # Randomly select spotting distance
+    rnge = -rule.spotrange:rule.spotrange
+    jump = (rand(rnge), rand(rnge))
+    jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
+
+    # Update spotted cell if it's on the grid
+    if is_inbounds
+        @inbounds data[W][jumpdest...] = state * rule.prob_threshold
+    end
+
+    state
+end
+```
+# define rule
+
+```{julia; results=hidden}
+jump = JumpDispersal{:population,:population}(
     spotrange=10,
     prob_threshold=0.1
 )

@@ -4,9 +4,7 @@ author : Rafael Schouten
 ---
 
 # Dispersal simulations
-In this example we will run a simulation of the spread of the Spotted Winged
-
-Drosophila _D. suzukii_ accross the continental USA.
+In this example we will run a simulation of the spread of the Fall Armyworm _Spodoptera frugiperda_ accross the continental USA.
 
 ### GTK window
 
@@ -14,17 +12,14 @@ Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 1), DateTime(2031, 1)
+tspan = DateTime(2020, 6), DateTime(2031, 6)
 ```
 Run the simulation in a DynamicGridsInteract window:
 
 ```{julia; results=hidden}
 using DynamicGridsInteract
-lon, lat = -81.428896, 27.848432
-
-populationgrid .= 0
-populationgrid[Lon(Contains(lon)), Lat(Contains(lat))] = carrycap
-output = InteractOutput(
+init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
+output = ElectronOutput(
     (population=populationgrid,),
     dispersalruleset,
     tspan=tspan,
@@ -34,16 +29,11 @@ output = InteractOutput(
     maxval=carrycap,
 )
 display(output)
-output = ArrayOutput((population=populationgrid,), 500)
-sim!(output, dispersalruleset; tspan=tspan, init=(population=populationgrid,))
-```
 
+```
 ```{julia; results=hidden}
 using DynamicGridsGtk
-lon, lat = -81.428896, 27.848432
-
-populationgrid .= 0
-populationgrid[Lon(Contains(lon)), Lat(Contains(lat))] = carrycap
+init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 output = GtkOutput(
     (population=populationgrid,),
     tspan=tspan,
