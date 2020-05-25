@@ -41,7 +41,10 @@ incursionpoints = (
     Cairns=(-16.937281, 145.747709),
     Perth=(-31.9505, 115.8605),
     Geraldton=(-28.778138, 114.615632),
-    Florida=(27.848432, -81.428896),
+    St_Hyacinth_QC = (45.627716, -72.956093),
+    Tifton_GA = (31.445379, -83.513415),
+    Gainsville_FL = (29.661792, -82.326272),
+    Homestead_FL=(25.470084, -80.464693),
     Texas=(26.243250, -97.911040)
 
 )
@@ -59,7 +62,10 @@ incursionpointstatekeys = (
     Cairns = (:QLD),
     Perth =	(:WA),
     Geraldton =	(:WA),
-    Florida = (:USA),
+    St_Hyacinth_QC = (:Canada),
+    Tifton_GA = (:USA),
+    Gainsville_FL = (:USA),
+    Homestead_FL=(:USA),
     Texas=(:USA)
 )
 ```
@@ -72,18 +78,20 @@ dispersal.
 
 ### Climate driven population growth
 
-Load the growthrates .16layer from netcdf:
+Load the growthrates .16layer from netcdf. Make sure the mode.span is correct.
 
 ```{julia; eval=false}
 using NCDatasets, Setfield
 growthratesfilename = "growthrates.ncd"
 growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
 growthrates = NCDarray(growthratesfilepath) |>
-    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
+    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Week(1)))) |>
     x->permutedims(x, (Lat, Lon, Ti)) |>
-    x->reverse(x; dims=Lat)[usa...]
+    x->reverse(x; dims=Lat)
+growthrates = growthrates[usa...]
 size(growthrates)
-plot(growthrates[Ti(1)],clim=(0,.15))
+p = plot(growthrates[Ti([1,13,25,37]), usa...], clims=(0.0, 0.15), axis=false)
+savefig("output/population_growth_quarters.png")
 ```
 
 Or From multiple tif files:
@@ -176,7 +184,6 @@ allee = AlleeExtinction{:population,:population}(minfounders=22.0);
 
 For each cell, allocate a proportion of individuals to a random cell within a given radius.
 
-
 Make a quick rule for long distance dispersal.
 
 ```{julia; results=hidden}
@@ -239,8 +246,6 @@ init_popgrid!(popgrid, (lat, lon), initsize) = begin
    popgrid .= 0.0
    popgrid[Lat(Contains(lat)), Lon(Contains(lon))] = initsize
 end
-
-init_popgrid!(populationgrid, incursionpoints[:Florida], carrycap)
 ```
 
 ### Define a combined ruleset

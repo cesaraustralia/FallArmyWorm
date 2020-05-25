@@ -12,13 +12,16 @@ Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 6), DateTime(2031, 6)
+tspan = DateTime(2020, 6), DateTime(2022, 6)
 ```
 Run the simulation in a DynamicGridsInteract window:
 
 ```{julia; results=hidden}
+#TODO need to pass through zero() to remove Ti dimension
 using DynamicGridsInteract
-init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
+populationgrid = zero(growthmask[Ti(1)])
+populationgrid += (growthmask[Ti(1)].>0) .* carrycap
+# init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 output = ElectronOutput(
     (population=populationgrid,),
     dispersalruleset,
@@ -28,12 +31,27 @@ output = ElectronOutput(
     minval=zero(carrycap),
     maxval=carrycap,
 )
-display(output)
+# display(output)
 
 ```
+
+```{julia; results=hidden}
+# TODO need to be very careful with keywords as tspan is NOT a keyword in ArrayOutput, but is other outputs
+#TODO but this way there is no time dimension in the output so I cant index properly with Lon() Lat()
+trange = tspan[1]:timestep:tspan[2]
+output = ArrayOutput(populationgrid, length(trange))
+sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=tspan)
+(y, x) = incursionpoints[:Tifton_GA]
+popxy = [output[i][Lat(Contains(y)), Lon(Contains(x))] for i = 1:length(trange)]
+
+plot(output[1] .* missingmask )
+
+plot(trange, popxy)
+```
+
 ```{julia; results=hidden}
 using DynamicGridsGtk
-init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
+# init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 output = GtkOutput(
     (population=populationgrid,),
     tspan=tspan,
@@ -48,7 +66,7 @@ sim!(output, dispersalruleset; tspan=tspan, init=(population=populationgrid,))
 And save it as a gif:
 
 ```{julia; results=hidden}
-savegif(joinpath(basedir, "output/dispersal.gif"), output; fps=30)
+savegif(joinpath(basedir, "output/dispersal.gif"), output, dispersalruleset; fps=30)
 ```
 
 Now with replicates:
@@ -92,6 +110,7 @@ init = zero(populationgrid)
 output = ArrayOutput(init, length(trange))
 nreps = 10
 ```
+
 Set up the output grid (which can be smaller than the sim to save time)
 Now make some pathway plots for some key incursion points.
 
@@ -108,7 +127,7 @@ function incursionplot(output, init, missingmask, key, (lat, lon), nreps, tspan,
     @set! steps_established.refdims = ()
     @set! steps_established.name = "Months established"
     for rep in 1:nreps
-        sim!(output, dispersalruleset; init=init, tspan=tspan)
+        sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=tspan)
         println("rep: ", rep)
         map(output) do step
             steps_established .+= step[:population] .>= 1

@@ -40,8 +40,16 @@ Thalf_H = 307.6K
 ΔH_L = 73744.0cal/mol
 Thalf_L = 500.0K
 T_ref = K(27.0°C)
+
+# Barfield 1978
+# ΔH_A = 11822.57cal/mol
+# ΔH_H = 90678.50cal/mol
+# Thalf_H = 295.08K # wrong units
+# ΔH_L = -6603.414cal/mol
+# Thalf_L = -19.59K # wrong units
+
 growthmodel = SchoolfieldIntrinsicGrowth(p, ΔH_A, ΔH_L, Thalf_L, ΔH_H, Thalf_H, T_ref)
-growth = Layer(:surface_temp, K, growthmodel)
+growthresponse = Layer(:surface_temp, K, growthmodel)
 ```
 
 If these are only estimated parameters, We can fit the model to a a dataset of growth
@@ -68,9 +76,15 @@ Now plot the growth rate curve:
 
 ```julia; results=hidden
 # TODO how to pass vector of values to rate
-temprange = K.( collect(1.0:40.0)*°C )
-p = plot(x -> GrowthMaps.rate(growth, x), temprange; label="growth rate")
+# TODO when you overwrite growth in spread.jmd you cannot run this anymore so have changed growth to growthresponse
+temprangeC = collect(1.0:40.0)*°C
+temprange = K.( temprangeC)
+# GrowthMaps.rate.(Ref(growthresponse), temprange)
+dev = map(x -> GrowthMaps.rate(growthresponse, x), temprange)
+p = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
 # scatter!(p, obs; label="observed ")
+savefig("output/development_response.png")
+
 ```
 
 We can try tweaking the fitting the model manually in a user interface.
@@ -80,9 +94,9 @@ We parametrise the model over the same temperature range that we are plotting,
 using the :surface_temp key that the model requires:
 
 ```julia; results=hidden
-wrapper = ModelWrapper(growth)
-tempdata=(surface_temp=temprange,)
-manualfit!(wrapper, tempdata)
+# wrapper = ModelWrapper(growthresponse)
+# tempdata=(surface_temp=temprange,)
+# manualfit!(wrapper, tempdata)
 ```
 
 
@@ -91,7 +105,7 @@ to use to generate our growth rate maps:
 
 ```julia; results=hidden
 # fittedgrowth = wrapper.model
-# growth = growth
+# growthresponse = growthresponse
 ```
 
 Note that `manualfit!` will also work for a tuple of model components
@@ -106,9 +120,12 @@ Using the monthly aggregated SMAP dataset
 using HDF5
 # smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
 smap_folder = "F:/SMAP/SMAP_monthly_midpoint_subset"
+smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
+
 tstart, tstop = DateTime(2017), DateTime(2018)
-days = (15,)
-series = SMAPseries(smap_folder)[Where(t -> dayofmonth(t) in days)]
+series = SMAPseries(smap_folder)
+# days = (1,8,15,21,28)
+# series = SMAPseries(smap_folder)[Where(t -> dayofmonth(t) in days)]
 ```
 
 Otherwise get the series from tiff files, which is a little more hands-on:
@@ -161,8 +178,8 @@ growthrates[Ti(1)] |> plot
 Now define some stressors:
 
 ```julia; results=hidden
-coldthresh = 10.0°C |> K
-coldmort = -0.025 * K^-1
+coldthresh = 13.0°C |> K
+coldmort = -0.5 * K^-1
 coldstress = Layer(:surface_temp, K, ColdStress(coldthresh, coldmort))
 
 heatthresh = 40.0°C |> K
@@ -204,8 +221,10 @@ occurrence = collect(zip(obs.X, obs.Y))
 
 And scatter them on the growthrates map:
 ```julia; results=hiddeats
-p = growthrates[Ti(1)] |> plot
-scatter!(p, occurrence; markersize=4.0, markercolor=:green, markershape=:circle, label="obs")
+p = plot(mean(growthrates,dims=Ti), clims=(0, 0.15))
+scatter!(p, occurrence; markersize=4.0, markercolor = false, markerstrokecolor = :white,  markeralpha = 0.2, markershape=:circle, label="obs")
+savefig("output/population_occurrence.png")
+
 ```
 
 # Parametrising models using interactive maps
@@ -230,18 +249,15 @@ scatter!(p, occurrence; markersize=4.0, markercolor=:green, markershape=:circle,
 Fit a model across the whole year to see where population growth is on average positive across the year.
 
 ```julia; results=hidden
-coldthresh = 13.0°C |> K
-coldmort = -0.5 * K^-1
-coldstress = Layer(:surface_temp, K, ColdStress(coldthresh, coldmort))
-
 growthrates = mapgrowth((growth, coldstress, wiltstress);
     series=aggseries,
     period=Month(1),
     nperiods=12,
     startdate=first(bounds(series, Ti))
 ) |> x->permutedims(x, (Lat, Lon, Ti))
-p = plot(growthrates[Ti([1,2,3,4]), usa...], clims=(0.0, 0.15), axis=false)
+p = plot(growthrates[Ti([1,4,7,10]), usa...], clims=(0.0, 0.15), axis=false)
 # scatter!(p, occurrence; markersize=1.0, markeralpha=1, markerstrokecolor = :white, markershape=:circle, label="obs")
+
 ```
 
 ```julia; results=hidden
@@ -298,9 +314,9 @@ using the higher resolution data, with a monthly timestep:
 ```julia; results=hidden
 growthrates = mapgrowth((growth, wiltstress, coldstress, heatstress),
     series=series,
-    period=Month(1),
-    nperiods=12,
-    startdate=first(bounds(series, Ti))
+    period=Week(1),
+    nperiods=52,
+    startdate=DateTime(2017,1)
 );
 # plot(growthrates[Ti(1:3:12)]; clims=(0.0, 0.15), axis=false)
 ```
