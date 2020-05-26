@@ -12,7 +12,7 @@ Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 6), DateTime(2022, 6)
+tspan = DateTime(2020, 6), DateTime(2020, 12)
 ```
 Run the simulation in a DynamicGridsInteract window:
 
@@ -22,7 +22,9 @@ using DynamicGridsInteract
 populationgrid = zero(growthmask[Ti(1)])
 populationgrid += (growthmask[Ti(1)].>0) .* carrycap
 # init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
-output = ElectronOutput(
+
+output = InteractOutput(
+# output = ElectronOutput(
     (population=populationgrid,),
     dispersalruleset,
     tspan=tspan,
@@ -31,16 +33,15 @@ output = ElectronOutput(
     minval=zero(carrycap),
     maxval=carrycap,
 )
-# display(output)
-
+display(output)
 ```
 
 ```{julia; results=hidden}
 # TODO need to be very careful with keywords as tspan is NOT a keyword in ArrayOutput, but is other outputs
-#TODO but this way there is no time dimension in the output so I cant index properly with Lon() Lat()
+# TODO but this way there is no time dimension in the output so I cant index properly with Lon() Lat()
 trange = tspan[1]:timestep:tspan[2]
-output = ArrayOutput(populationgrid, length(trange))
-sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=tspan)
+output = ArrayOutput(populationgrid; tspan=trange)
+@time sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=trange)
 (y, x) = incursionpoints[:Tifton_GA]
 popxy = [output[i][Lat(Contains(y)), Lon(Contains(x))] for i = 1:length(trange)]
 
