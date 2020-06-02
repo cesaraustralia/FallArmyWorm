@@ -33,7 +33,7 @@ When defining model components, the first parameter is a `:symbol` for the
 required raster layer in the source data.
 
 ```julia; results=hidden
-p = 0.17
+p27 = 0.17
 ΔH_A = 15588.0cal/mol
 ΔH_H = 73744.0cal/mol
 Thalf_H = 307.6K
@@ -41,15 +41,25 @@ Thalf_H = 307.6K
 Thalf_L = 500.0K
 T_ref = K(27.0°C)
 
-# Barfield 1978
-# ΔH_A = 11822.57cal/mol
-# ΔH_H = 90678.50cal/mol
-# Thalf_H = 295.08K # wrong units
-# ΔH_L = -6603.414cal/mol
-# Thalf_L = -19.59K # wrong units
+# Barfield 1978 (need to convert parameters using Schoolfield)
+ΔH_A = 11822.57cal/mol
+S_H = 295.08cal/mol/K
+ΔH_H = 90678.50cal/mol
+S_L = -19.59cal/mol/K
+ΔH_L = -6603.414cal/mol
+ψ_EA =12.254cal/K/mol
+# R = 1.987cal/K/mol
+# p = K(25.0°C)*exp((ψ_EA - ΔH_A/K(25.0°C))/R) # issues
+# T_ref = K(25.0°C)
+p27 = 0.75 # this is higher than 0.17 as inactivation in more in Barfield pars
+T_ref = K(27.0°C)
+Thalf_L = ΔH_L/S_L
+Thalf_H = ΔH_H/S_H
 
-growthmodel = SchoolfieldIntrinsicGrowth(p, ΔH_A, ΔH_L, Thalf_L, ΔH_H, Thalf_H, T_ref)
+growthmodel = SchoolfieldIntrinsicGrowth(p27, ΔH_A, ΔH_L, Thalf_L, ΔH_H, Thalf_H, T_ref)
 growthresponse = Layer(:surface_temp, K, growthmodel)
+
+GrowthMaps.rate(growthresponse, T_ref)
 ```
 
 If these are only estimated parameters, We can fit the model to a a dataset of growth
@@ -83,7 +93,7 @@ temprange = K.( temprangeC)
 dev = (x -> GrowthMaps.rate(growthresponse, x)).(temprange)
 p = plot(temprangeC, dev; label=false, ylabel="growth rate (1/d)", xlab = "temperature")
 # scatter!(p, obs; label="observed ")
-savefig("output/development_response.png")
+savefig("output/development_response_barfield.png")
 
 ```
 
@@ -199,7 +209,7 @@ As the population growth response is only based on temperature, the annual growt
 
 ```julia; results=hidden
 coldthresh = 13.0°C |> K
-coldmort = -0.5 * K^-1
+coldmort = -0.1 * K^-1
 coldstress = Layer(:surface_temp, K, ColdStress(coldthresh, coldmort))
 
 heatthresh = 40.0°C |> K
@@ -302,10 +312,10 @@ modelkwargs = (
     series=aggseries,
     period=Month(1),
     nperiods=12,
-    startdate=first(bounds(aggseries, Ti))
+    startdate=DateTime(2017, 1)
 )
 precomputed = mapgrowth(growthresponse; modelkwargs...)
-aggseries = aggseries |> x->permutedims(x, (Lat, Lon, Ti))
+# aggseries = aggseries |> x->permutedims(x, (Lat, Lon, Ti))
 ```
 
 Then fit the other components. `throttle` will dictate how fast the interface updates. Make it larger on a slow machine,
@@ -315,7 +325,7 @@ smaller on a faster one.
 wrapper = ModelWrapper(wiltstress, coldstress, heatstress)
 throttle = 0.2
 interface = mapfit!(wrapper, modelkwargs;
-    window=(Ti(1),),
+    window=(Ti(1)),
     # occurrence=occurrence,
     precomputed=precomputed,
     throttle=throttle,
