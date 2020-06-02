@@ -163,8 +163,8 @@ radius = 5
     distancemethod=AreaToArea(30),
 )
 localdisp = InwardsPopulationDispersal{:population,:population}(hood)
-hood.kernel |> heatmap
-# savefig("output/dispersal_kernel.png")
+log.(hood.kernel) |> heatmap
+# savefig("output/log_dispersal_kernel.png")
 ```
 
 ### Allee effects
@@ -181,50 +181,11 @@ For each cell, allocate a proportion of individuals to a random cell within a gi
 
 Make a quick rule for long distance dispersal.
 
-```{julia; results=hidden}
-# using Mixers, FieldMetadata, FieldDefaults
-# abstract type AbstractJumpDispersal{R,W} <: PartialRule{R,W} end
-#
-# import FieldMetadata: @default, @description, @limits, @flattenable, @default_kw
-#                       default, description, limits, flattenable, default_kw
-#
-# import FieldDefaults: @default_kw,
-#                       default_kw
-# @chain columns @description @limits @flattenable @default_kw
-#
-# @mix @columns struct Probabilistic{PT}
-#     # Field            | Default | Flatn | Limits     | Description
-#     prob_threshold::PT | 0.1     | true  | (0.0, 1.0) | "A real number between one and zero"
-# end
-# @Probabilistic struct JumpDispersal2{R,W,SR} <: AbstractJumpDispersal{R,W}
-#     # Field       | Def  | Flatten | Limits       | Description
-#     spotrange::SR | 30.0 | true    | (0.0, 100.0) | "A number or Unitful.jl distance with the same units as cellsize"
-# end
-
-# TODO update this and test
-@inline applyrule!(rule::JumpDispersal{R,W}, data, state, index
-                  ) where {R,W} = begin
-    # Ignore empty cells
-    state > zero(state) || return state
-
-    # Randomly select spotting distance
-    rnge = -rule.spotrange:rule.spotrange
-    jump = (rand(rnge), rand(rnge))
-    jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
-
-    # Update spotted cell if it's on the grid
-    if is_inbounds
-        @inbounds data[W][jumpdest...] = state * rule.prob_threshold
-    end
-
-    state
-end
-```
-# define rule
+# Define Jump rule
 
 ```{julia; results=hidden}
 jump = JumpDispersal{:population,:population}(
-    spotrange=10,
+    spotrange=10.0,
     prob_threshold=0.1
 )
 ```
@@ -247,7 +208,7 @@ end
 ```{julia; results=hidden}
 dispersalruleset = Ruleset(
     Chain(localdisp, allee, growth), jump;
-    init=populationgrid,
+    init=(population=populationgrid),
     mask=collect(boolmask),
     timestep=timestep
 );
@@ -258,7 +219,7 @@ Define some color processors to use in live simuulations.
 
 ```{julia; results=hidden}
 zerocolor = ARGB32(0.7)
-maskcolor = ARGB32(0.0)
+maskcolor = ARGB32(0.2)
 textconfig = TextConfig(font="cantarel", bcolor=zerocolor, fcolor=maskcolor)
 oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor, textconfig)
 jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor, textconfig)
