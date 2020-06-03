@@ -19,14 +19,14 @@ gr()
 We use DateTime unitsof months for the timestep:
 
 ```{julia; results=hidden}
-timestep = Day(1)
+timestep = Week(1)
 lonmin = 113.3402
 lonmax = 153.9523
 latmin = -43.62234
 latmin = -43.56234 # Fix for geodata tiff/netcdf load save errors
 latmax = -10.65125
 aust = Lon(Between(lonmin, lonmax)), Lat(Between(latmin, latmax))
-usa = Lon(Between(-125.0, -66.96)), Lat(Between(20.0, 50))
+usa = Lon(Between(-125.0, -66.96)), Lat(Between(5, 50))
 
 incursionpoints = (
     Melbourne=(-37.805896, 144.959527),
@@ -45,8 +45,11 @@ incursionpoints = (
     Tifton_GA = (31.445379, -83.513415),
     Gainsville_FL = (29.661792, -82.326272),
     Homestead_FL=(25.470084, -80.464693),
-    Texas=(26.243250, -97.911040)
-
+    Puerto_Rico=(18.267668, -66.445990),
+    Virgin_Islands=(17.728809, -64.821270),
+    Guadeloupe=(16.187087, -61.676442),
+    French_Guiana=(4.905187, -52.418892),
+    Texas=(26.243250, -97.911040),
 )
 
 incursionpointstatekeys = (
@@ -66,7 +69,11 @@ incursionpointstatekeys = (
     Tifton_GA = (:USA),
     Gainsville_FL = (:USA),
     Homestead_FL=(:USA),
-    Texas=(:USA)
+    Puerto_Rico=(:USA),
+    Virgin_Islands=(:USA),
+    Guadeloupe=(:France),
+    French_Guiana=(:France),
+    Texas=(:USA),
 )
 ```
 
@@ -88,10 +95,13 @@ growthrates = NCDarray(growthratesfilepath) |>
     x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Week(1)))) |>
     x->permutedims(x, (Lat, Lon, Ti)) |>
     x->reverse(x; dims=Lat)
+p = plot(growthrates[Ti([1,13,25,37]), aust...], clims=(0.0, 0.15), axis=false)
+savefig("output/population_growth_quarters_Aus.png")
+p = plot(growthrates[Ti([1,13,25,37]), usa...], clims=(0.0, 0.15), axis=false)
+savefig("output/population_growth_quarters_USA.png")
+
 growthrates = growthrates[usa...]
 size(growthrates)
-p = plot(growthrates[Ti([1,13,25,37]), usa...], clims=(0.0, 0.15), axis=false)
-savefig("output/population_growth_quarters.png")
 ```
 
 Or From multiple tif files:
@@ -207,30 +217,35 @@ Make a quick rule for long distance dispersal.
 # end
 
 # TODO update this and test
-@inline applyrule!(rule::JumpDispersal{R,W}, data, state, index
+import DynamicGrids: gridsize, inbounds
+@inline Dispersal.applyrule!(rule::JumpDispersal{R,W}, data, state, index
                   ) where {R,W} = begin
-    # Ignore empty cells
-    state > zero(state) || return state
+      # Ignore empty cells
+      state > zero(state) || return state
 
-    # Randomly select spotting distance
-    rnge = -rule.spotrange:rule.spotrange
-    jump = (rand(rnge), rand(rnge))
-    jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
+      # Random dispersal events
+      # rand() < rule.prob_threshold || return state
 
-    # Update spotted cell if it's on the grid
-    if is_inbounds
-        @inbounds data[W][jumpdest...] = state * rule.prob_threshold
+      # Randomly select spotting distance
+      intspot = round(Int, rule.spotrange)
+      rnge = -intspot:intspot
+      jump = (rand(rnge), rand(rnge))
+      jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
+
+      # Update spotted cell if it's on the grid
+      if is_inbounds
+          @inbounds data[W][jumpdest...] = state + state * rule.prob_threshold
+      end
+
+      state * (1 - rule.prob_threshold)
     end
-
-    state
-end
 ```
 # define rule
 
 ```{julia; results=hidden}
 jump = JumpDispersal{:population,:population}(
-    spotrange=10,
-    prob_threshold=0.1
+    spotrange=20.0,
+    prob_threshold=0.01
 )
 ```
 
