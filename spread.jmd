@@ -22,12 +22,12 @@ using DynamicGridsInteract
 populationgrid = one(growthmask[Ti(1)]) .* carrycap
 # init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 
-output = InteractOutput(
 # output = ElectronOutput(
-    (population=populationgrid,),
-    dispersalruleset,
+output = InteractOutput(
+    (population=populationgrid,);
+    ruleset=dispersalruleset,
     mask=boolmask,
-    aux=(growthrates=growthrates_zeromissing),
+    aux=(growthrates=growthrates_zeromissing,),
     tspan=tspan,
     store=true,
     processor=inferno,
@@ -38,21 +38,16 @@ display(output)
 ```
 
 ```{julia; results=hidden}
-# TODO need to be very careful with keywords as tspan is NOT a keyword in ArrayOutput, but is other outputs
-# TODO but this way there is no time dimension in the output so I cant index properly with Lon() Lat()
-trange = tspan[1]:timestep:tspan[2]
-output = ArrayOutput(populationgrid;
+output = ArrayOutput((population=populationgrid,);
     mask=boolmask,
-    aux=(growthrates=growthrates_zeromissing),
+    aux=(growthrates=growthrates_zeromissing,),
     tspan=tspan,
 )
-@time sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=trange)
+@time sim!(output, dispersalruleset)
 (y, x) = incursionpoints[:Tifton_GA]
-popxy = [output[i][Lat(Contains(y)), Lon(Contains(x))] for i = 1:length(trange)]
-
-plot(output[1] .* missingmask )
-
-plot(trange, popxy)
+plot(output[1][:population] .* missingmask )
+popxy = [frame[:population][Lat(Contains(y)), Lon(Contains(x))] for frame in output]
+plot(tspan, popxy)
 ```
 
 ```{julia; results=hidden}
@@ -60,13 +55,15 @@ using DynamicGridsGtk
 # init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 output = GtkOutput(
     (population=populationgrid,),
+    mask=boolmask,
+    aux=(growthrates=growthrates_zeromissing,),
     tspan=tspan,
     store=true,
     processor=inferno,
     minval=zero(carrycap),
     maxval=carrycap,
 )
-sim!(output, dispersalruleset; tspan=tspan, init=(population=populationgrid,))
+sim!(output, dispersalruleset)
 ```
 
 And save it as a gif:
@@ -87,7 +84,7 @@ Now with replicates:
 ```
 
 
-### Interactive web outputs
+### Interactive web output
 
 ```{julia; results=hidden}
 # using DynamicGridsInteract
@@ -108,12 +105,13 @@ at a major port, then model all possible incursion scenarios.
 Set up the simulation:
 
 ```{julia; results=hidden}
-starttime = DateTime(2020, 1)
-stoptime = DateTime(2022, 1)
-tspan = starttime, stoptime
-trange = starttime:timestep:stoptime
-init = zero(populationgrid)
-output = ArrayOutput(init, length(trange))
+tspan = DateTime(2020, 1):timestep:DateTime(2022, 1)
+init = (population=zero(populationgrid),)
+output = ArrayOutput(init;
+    mask=boolmask,
+    aux=(growthrates=growthrates_zeromissing,),
+    tspan=tspan,
+)
 nreps = 10
 ```
 
@@ -132,7 +130,7 @@ function incursionplot(output, init, missingmask, key, (lat, lon), nreps)
     @set! steps_established.refdims = ()
     @set! steps_established.name = "Months established"
     for rep in 1:nreps
-        sim!(output, dispersalruleset)
+        sim!(output, dispersalruleset; init=init)
         println("rep: ", rep)
         map(output) do step
             steps_established .+= step[:population] .>= 1
@@ -144,11 +142,9 @@ end
 ```
 
 ```{julia; results=hidden}
-init = (population=zero(populationgrid),)
-output = ArrayOutput(init, length(trange))
 plots = []
 for (key, loc) in zip(keys(incursionpoints), incursionpoints)
-    push!(plots, incursionplot(output, missingmask, key, loc, nreps, timestep))
+    push!(plots, incursionplot(output, init, missingmask, key, loc, nreps))
 end
 ```
 

@@ -161,7 +161,7 @@ radius = 5
 )
 localdisp = InwardsPopulationDispersal{:population,:population}(hood)
 log.(hood.kernel) |> heatmap
-# savefig("output/log_dispersal_kernel.png")
+savefig("output/log_dispersal_kernel.png")
 ```
 
 ### Allee effects
