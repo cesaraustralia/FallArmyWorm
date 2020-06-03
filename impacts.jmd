@@ -29,9 +29,7 @@ trapcost = Ruleset(FixedCost(traps, costpertrap))
 ```
 
 ```julia; results=hidden
-timerange = DateTime(2020):timestep:DateTime(2023)
-tspan = timerange[1], timerange[end]
-nframes = length(timerange)
+tspan = DateTime(2020):timestep:DateTime(2023)
 ```
 Set up the initialisation arrays:
 
@@ -85,7 +83,7 @@ nreps = 100
 ```
 
 ```julia
-function build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, populationgrid, timerange, humandisp, localdisp, allee, growth, croploss_fraction)
+function build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, populationgrid, tspan, humandisp, localdisp, allee, growth, croploss_fraction)
     #Threads.@threads
     for (statekey, incursioncity, (lat, lon)) in collect(zip(incursionpointstatekeys, keys(incursionpoints), incursionpoints))
         costgrid = GeoArray(zero(populationgrid); name="cost")
@@ -94,9 +92,11 @@ function build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, po
         popgrid = GeoArray(zero(populationgrid); name="population")
         popgrid[Lat(Contains(lat)), Lon(Contains(lon))] = carrycap
         initgrids = (population=popgrid, cost=costgrid)
-        output = ArrayOutput(initgrids, length(timerange))
+        output = ArrayOutput(initgrids;
+            mask=boolmask,
+            tspan=tspan,
+        )
         utimestep = 365.25u"d" / 12
-        tspan = timerange[1], timerange[end]
         croploss = Biosecurity.DynamicThresholdCost(;
             inputgrid=:population,
             costgrid=:cost,
@@ -105,9 +105,7 @@ function build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, po
         )
         ruleset = Ruleset(
             humandisp, localdisp, allee, growth, croploss;
-            init=initgrids,
-            mask=boolmask,
-            timestep=step(timerange),
+            timestep=step(tspan),
         )
         # sim output can be used for multiple crops/states
         for rep in 1:nreps
@@ -136,8 +134,7 @@ function build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, po
     end
 end
 
-build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, populationgrid, timerange, humandisp, localdisp, allee, growth, croploss_fraction)
-output = length(timerange)
+build_impacts!(dataframes, incursionpoints, cropvalues, splitstates, populationgrid, tspan, humandisp, localdisp, allee, growth, croploss_fraction)
 cropvalues[3] .* splitstates[3] |> plot
 # GDALarray("output/costs/cherries_QLD_cost_for_Cairns_incursion.tif"; usercrs=EPSG(4326)) |> plot
 impactsdata = vcat(dataframes...)
@@ -156,7 +153,7 @@ Plotting (broken, use R for now)
 # end
 # meandata |> @df scatter(:timestep, :meancost)
 # labels = permutedims(string.([keys(incursionpoints)...], Ref(" incursion")))
-# plot(timerange, outputs;
+# plot(tspan, outputs;
 #     title = "Crop losses to Drosophila suzukii",
 #     xlabel="Date",
 #     ylabel="Cost in dollars (millions)",

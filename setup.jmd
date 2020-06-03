@@ -7,11 +7,10 @@ NetCDF and GeoTiff files, respectively.
 
 ```{julia; results=hidden}
 using DimensionalData, GeoData, ArchGDAL, Dispersal, Biosecurity
-using Statistics, Dates, Plots, Unitful
+using Statistics, Dates, Plots, Unitful, NCDatasets, Setfield
 using DimensionalData: setdims, rebuild, Between
 using ColorSchemes, Colors
-basedir = ""
-gr()
+basedir = @__DIR__
 ```
 
 ### Define simulation settings
@@ -46,27 +45,26 @@ incursionpoints = (
     Gainsville_FL = (29.661792, -82.326272),
     Homestead_FL=(25.470084, -80.464693),
     Texas=(26.243250, -97.911040)
-
 )
 
 incursionpointstatekeys = (
-    Melbourne = (:Vic),
-    Mildura	 = (:Vic),
-    Coffs_Harbour =	(:NSW),
-    Sydney = (:NSW),
-    Adelaide = (:SA),
-    Port_Augusta = (:SA),
-    Devonport  = (:Tas),
-    Hobart = (:Tas),
-    Brisbane = (:QLD),
-    Cairns = (:QLD),
-    Perth =	(:WA),
-    Geraldton =	(:WA),
-    St_Hyacinth_QC = (:Canada),
-    Tifton_GA = (:USA),
-    Gainsville_FL = (:USA),
-    Homestead_FL=(:USA),
-    Texas=(:USA)
+    Melbourne=:Vic,
+    Mildura=:Vic,
+    Coffs_Harbour=:NSW,
+    Sydney=:NSW,
+    Adelaide=:SA,
+    Port_Augusta=:SA,
+    Devonport=:Tas,
+    Hobart=:Tas,
+    Brisbane=:QLD,
+    Cairns=:QLD,
+    Perth=:WA,
+    Geraldton=:WA,
+    St_Hyacinth_QC=:Canada,
+    Tifton_GA=:USA,
+    Gainsville_FL=:USA,
+    Homestead_FL=:USA,
+    Texas=:USA
 )
 ```
 
@@ -81,17 +79,14 @@ dispersal.
 Load the growthrates .16layer from netcdf. Make sure the mode.span is correct.
 
 ```{julia; eval=false}
-using NCDatasets, Setfield
 growthratesfilename = "growthrates.ncd"
 growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
-growthrates = NCDarray(growthratesfilepath) |>
+growthrates = NCDarray(growthratesfilepath)[usa...] |>
     x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Week(1)))) |>
     x->permutedims(x, (Lat, Lon, Ti)) |>
     x->reverse(x; dims=Lat)
-growthrates = growthrates[usa...]
-size(growthrates)
 p = plot(growthrates[Ti([1,13,25,37]), usa...], clims=(0.0, 0.15), axis=false)
-savefig("output/population_growth_quarters.png")
+savefig(joinpath(basedir, "output/population_growth_quarters.png"))
 ```
 
 Or From multiple tif files:
@@ -109,6 +104,12 @@ Or From multiple tif files:
 # plot(growthrates[Ti(3)])
 ```
 
+Plot the growth layer:
+
+```{julia; results=hidden}
+plot(growthrates[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
+plot(mean(growthrates; dims=Ti); clims=(0, 0.15))
+```
 
 
 ### Define masking layers
@@ -132,15 +133,7 @@ growthmask |> plot
 # @assert all(dims(states, Lon).val .≈ dims(growthrates, Lon).val)
 ```
 
-Plot the growth layer:
-
-```{julia; results=hidden}
-plot(growthrates[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
-plot(mean(growthrates; dims=Ti()); clims=(0, 0.15))
-```
-
 ## Define Rules
-
 
 Create a `ExactLogisticGrowthMap` rule from the layer, here we use
 unitful units for the layers' time dimension:
@@ -148,9 +141,9 @@ unitful units for the layers' time dimension:
 ```{julia; results=hidden}
 carrycap = 1e8
 growth = ExactLogisticGrowthMap{:population,:population}(
-    layer=growthrates_zeromissing,
+    layerkey=Val(:growthrates),
     carrycap=carrycap,
-    timestep=Day(1)
+    timestep=Day(1),
 );
 ```
 
@@ -162,14 +155,13 @@ to ability to fly or use other mechanisms.
 ```{julia; results=hidden}
 λ = 0.0125
 radius = 5
-
 @time hood = DispersalKernel{radius}(
     formulation=ExponentialKernel(λ),
     distancemethod=AreaToArea(30),
 )
 localdisp = InwardsPopulationDispersal{:population,:population}(hood)
-hood.kernel |> heatmap
-# savefig("output/dispersal_kernel.png")
+log.(hood.kernel) |> heatmap
+# savefig("output/log_dispersal_kernel.png")
 ```
 
 ### Allee effects
@@ -186,50 +178,11 @@ For each cell, allocate a proportion of individuals to a random cell within a gi
 
 Make a quick rule for long distance dispersal.
 
-```{julia; results=hidden}
-# using Mixers, FieldMetadata, FieldDefaults
-# abstract type AbstractJumpDispersal{R,W} <: PartialRule{R,W} end
-#
-# import FieldMetadata: @default, @description, @limits, @flattenable, @default_kw
-#                       default, description, limits, flattenable, default_kw
-#
-# import FieldDefaults: @default_kw,
-#                       default_kw
-# @chain columns @description @limits @flattenable @default_kw
-#
-# @mix @columns struct Probabilistic{PT}
-#     # Field            | Default | Flatn | Limits     | Description
-#     prob_threshold::PT | 0.1     | true  | (0.0, 1.0) | "A real number between one and zero"
-# end
-# @Probabilistic struct JumpDispersal2{R,W,SR} <: AbstractJumpDispersal{R,W}
-#     # Field       | Def  | Flatten | Limits       | Description
-#     spotrange::SR | 30.0 | true    | (0.0, 100.0) | "A number or Unitful.jl distance with the same units as cellsize"
-# end
-
-# TODO update this and test
-@inline applyrule!(rule::JumpDispersal{R,W}, data, state, index
-                  ) where {R,W} = begin
-    # Ignore empty cells
-    state > zero(state) || return state
-
-    # Randomly select spotting distance
-    rnge = -rule.spotrange:rule.spotrange
-    jump = (rand(rnge), rand(rnge))
-    jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
-
-    # Update spotted cell if it's on the grid
-    if is_inbounds
-        @inbounds data[W][jumpdest...] = state * rule.prob_threshold
-    end
-
-    state
-end
-```
-# define rule
+# Define Jump rule
 
 ```{julia; results=hidden}
 jump = JumpDispersal{:population,:population}(
-    spotrange=10,
+    spotrange=10.0,
     prob_threshold=0.1
 )
 ```
@@ -252,8 +205,6 @@ end
 ```{julia; results=hidden}
 dispersalruleset = Ruleset(
     Chain(localdisp, allee, growth), jump;
-    init=populationgrid,
-    mask=collect(boolmask),
     timestep=timestep
 );
 ```
@@ -262,17 +213,18 @@ dispersalruleset = Ruleset(
 Define some color processors to use in live simuulations.
 
 ```{julia; results=hidden}
-zerocolor = RGB24(0.7)
-maskcolor = RGB24(0.0)
-oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor)
-jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor)
-viridis = ColorProcessor(ColorSchemes.viridis, zerocolor, maskcolor)
-inferno = ColorProcessor(ColorSchemes.inferno, zerocolor, maskcolor)
-magma = ColorProcessor(ColorSchemes.magma, zerocolor, maskcolor)
-blues = ColorProcessor(ColorSchemes.Blues_3, zerocolor, maskcolor)
-algae = ColorProcessor(ColorSchemes.algae, zerocolor, maskcolor)
-cyclic = ColorProcessor(ColorSchemes.cyclic_grey_15_85_c0_n256, zerocolor, maskcolor)
-rainbow1 = ColorProcessor(ColorSchemes.rainbow1, zerocolor, maskcolor)
-wistia = ColorProcessor(ColorSchemes.Wistia, zerocolor, maskcolor)
-autumn = ColorProcessor(ColorSchemes.Wistia, zerocolor, maskcolor)
+zerocolor = ARGB32(0.7)
+maskcolor = ARGB32(0.2)
+textconfig = TextConfig(font="cantarel", bcolor=zerocolor, fcolor=maskcolor)
+oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor, textconfig)
+jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor, textconfig)
+viridis = ColorProcessor(ColorSchemes.viridis, zerocolor, maskcolor, textconfig)
+inferno = ColorProcessor(ColorSchemes.inferno, zerocolor, maskcolor, textconfig)
+magma = ColorProcessor(ColorSchemes.magma, zerocolor, maskcolor, textconfig)
+blues = ColorProcessor(ColorSchemes.Blues_3, zerocolor, maskcolor, textconfig)
+algae = ColorProcessor(ColorSchemes.algae, zerocolor, maskcolor, textconfig)
+cyclic = ColorProcessor(ColorSchemes.cyclic_grey_15_85_c0_n256, zerocolor, maskcolor, textconfig)
+rainbow1 = ColorProcessor(ColorSchemes.rainbow1, zerocolor, maskcolor, textconfig)
+wistia = ColorProcessor(ColorSchemes.Wistia, zerocolor, maskcolor, textconfig)
+autumn = ColorProcessor(ColorSchemes.Wistia, zerocolor, maskcolor, textconfig)
 ```

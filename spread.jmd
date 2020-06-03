@@ -12,35 +12,41 @@ Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 6), DateTime(2022, 6)
+tspan = DateTime(2020, 6):timestep:DateTime(2020, 12)
 ```
 Run the simulation in a DynamicGridsInteract window:
 
 ```{julia; results=hidden}
 #TODO need to pass through zero() to remove Ti dimension
 using DynamicGridsInteract
-populationgrid = zero(growthmask[Ti(1)])
-populationgrid += (growthmask[Ti(1)].>0) .* carrycap
+populationgrid = one(growthmask[Ti(1)]) .* carrycap
 # init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
-output = ElectronOutput(
+
+output = InteractOutput(
+# output = ElectronOutput(
     (population=populationgrid,),
     dispersalruleset,
+    mask=boolmask,
+    aux=(growthrates=growthrates_zeromissing),
     tspan=tspan,
     store=true,
     processor=inferno,
     minval=zero(carrycap),
     maxval=carrycap,
 )
-# display(output)
-
+display(output)
 ```
 
 ```{julia; results=hidden}
 # TODO need to be very careful with keywords as tspan is NOT a keyword in ArrayOutput, but is other outputs
-#TODO but this way there is no time dimension in the output so I cant index properly with Lon() Lat()
+# TODO but this way there is no time dimension in the output so I cant index properly with Lon() Lat()
 trange = tspan[1]:timestep:tspan[2]
-output = ArrayOutput(populationgrid, length(trange))
-sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=tspan)
+output = ArrayOutput(populationgrid;
+    mask=boolmask,
+    aux=(growthrates=growthrates_zeromissing),
+    tspan=tspan,
+)
+@time sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=trange)
 (y, x) = incursionpoints[:Tifton_GA]
 popxy = [output[i][Lat(Contains(y)), Lon(Contains(x))] for i = 1:length(trange)]
 
@@ -117,9 +123,8 @@ Now make some pathway plots for some key incursion points.
 And generate the plot.
 
 ```{julia; results=hidden
-function incursionplot(output, init, missingmask, key, (lat, lon), nreps, tspan, timestep)
+function incursionplot(output, init, missingmask, key, (lat, lon), nreps)
     println(key)
-    len = length(tspan[1]:timestep:tspan[2])
     init[:population] .= 0
     init[:population][Lat(Contains(lat)), Lon(Contains(lon))] = carrycap
     steps_established = similar(output[1][:population], Int)
@@ -127,7 +132,7 @@ function incursionplot(output, init, missingmask, key, (lat, lon), nreps, tspan,
     @set! steps_established.refdims = ()
     @set! steps_established.name = "Months established"
     for rep in 1:nreps
-        sim!(output, dispersalruleset; init=(population=populationgrid,), tspan=tspan)
+        sim!(output, dispersalruleset)
         println("rep: ", rep)
         map(output) do step
             steps_established .+= step[:population] .>= 1
@@ -143,7 +148,7 @@ init = (population=zero(populationgrid),)
 output = ArrayOutput(init, length(trange))
 plots = []
 for (key, loc) in zip(keys(incursionpoints), incursionpoints)
-    push!(plots, incursionplot(output, init, missingmask, key, loc, nreps, tspan, timestep))
+    push!(plots, incursionplot(output, missingmask, key, loc, nreps, timestep))
 end
 ```
 
