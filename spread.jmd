@@ -12,18 +12,21 @@ Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 6):timestep:DateTime(2020, 12)
+tspan = DateTime(2020, 6):timestep:DateTime(2021, 6)
+# populationgrid = one(growthmask[Ti(1)]) .* carrycap
+populationgrid = zero(growthmask[Ti(1)])
+populationgrid += (growthmask[Ti(1)].>0) .* carrycap
+
 ```
 Run the simulation in a DynamicGridsInteract window:
 
 ```{julia; results=hidden}
 #TODO need to pass through zero() to remove Ti dimension
 using DynamicGridsInteract
-populationgrid = one(growthmask[Ti(1)]) .* carrycap
 # init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 
-# output = ElectronOutput(
-output = InteractOutput(
+output = ElectronOutput(
+# output = InteractOutput(
     (population=populationgrid,);
     ruleset=dispersalruleset,
     mask=boolmask,
@@ -45,8 +48,13 @@ output = ArrayOutput((population=populationgrid,);
 )
 @time sim!(output, dispersalruleset)
 (y, x) = incursionpoints[:Tifton_GA]
-plot(output[1][:population] .* missingmask )
+plot(output[2][:population] .* missingmask)
+plot(output[180][:population])
+
 popxy = [frame[:population][Lat(Contains(y)), Lon(Contains(x))] for frame in output]
+output[2][:population]
+maximum(output[1][:population])
+typeof(output[2][:population])
 plot(tspan, popxy)
 ```
 

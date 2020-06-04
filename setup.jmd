@@ -82,11 +82,10 @@ Load the growthrates .16layer from netcdf. Make sure the mode.span is correct.
 growthratesfilename = "growthrates.ncd"
 growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
 growthrates = NCDarray(growthratesfilepath)[usa...] |>
-    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Week(1)))) |>
+    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
     x->permutedims(x, (Lat, Lon, Ti)) |>
     x->reverse(x; dims=Lat)
-p = plot(growthrates[Ti([1,13,25,37]), usa...], clims=(0.0, 0.15), axis=false)
-savefig(joinpath(basedir, "output/population_growth_quarters.png"))
+p = plot(growthrates[Ti(1:3:12), usa...], clims=(0.0, 0.15), axis=false)
 ```
 
 Or From multiple tif files:
@@ -215,7 +214,7 @@ Define some color processors to use in live simuulations.
 ```{julia; results=hidden}
 zerocolor = ARGB32(0.7)
 maskcolor = ARGB32(0.2)
-textconfig = TextConfig(font="cantarel", bcolor=zerocolor, fcolor=maskcolor)
+textconfig = TextConfig(font="arial", bcolor=zerocolor, fcolor=maskcolor)
 oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor, textconfig)
 jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor, textconfig)
 viridis = ColorProcessor(ColorSchemes.viridis, zerocolor, maskcolor, textconfig)

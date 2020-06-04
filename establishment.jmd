@@ -20,6 +20,7 @@ These packages take care of loading and plotting data, and handling sci units an
 using GrowthMaps, Plots, Unitful, UnitfulRecipes, Dates, Setfield, Statistics
 using GeoData, ArchGDAL, NCDatasets, HDF5
 using Unitful: °C, K, cal, mol
+using CSV
 basedir = @__DIR__
 ```
 
@@ -129,12 +130,14 @@ Using the monthly aggregated SMAP dataset
 
 ```julia; results=hidden
 #smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
-smap_folder = "/home/raf/Work/cesar/Data/SMAP"
+# smap_folder = "/home/raf/Work/cesar/Data/SMAP"
 # smap_folder = "F:/SMAP/SMAP_monthly_midpoint_subset"
-# smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
-series = SMAPseries(smap_folder)
-days = (1, 8, 15, 21, 28)
-series = series[Where(t -> dayofmonth(t) in days)]
+smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
+smapfiles = joinpath.(smap_folder, [f for f in readdir(smap_folder) if occursin(r".h5$", f) && occursin("_2017" , f)])
+smapfiles = smapfiles[match.(r"01T|15T", smapfiles) .!= nothing]
+series = SMAPseries(smapfiles)
+# series = seriesall[Where(t -> dayofmonth(t) in days)]
+# series = series[Where(t -> year(t) in 2017)]
 ```
 
 Otherwise get the series from tiff files, which is a little more hands-on:
@@ -253,7 +256,7 @@ sum(map(x -> isnan(x) ? zero(x) : x, growthdiff))
 tspan = DateTime(2017):Month(1):DateTime(2017, 12)
 length(tspan)
 growthrates = mapgrowth((growthresponse, heatstress, coldstress, wiltstress);
-    series=series, tspan=tspan,
+    series=aggseries, tspan=tspan,
 )
 plot(growthrates[Ti(1)], clims=(0.0, 0.15), axis=false)
 ```
@@ -264,7 +267,6 @@ To compare out simulation with observations data, we'll load them
 from a CSV file:
 
 ```julia; results=hidden
-using CSV
 csvfilename = joinpath(basedir, "data/wang2020.csv")
 obs = CSV.File(csvfilename)
 occurrence = collect(zip(obs.longitude, obs.latitude))
@@ -274,8 +276,8 @@ And scatter them on the growthrates map:
 
 ```julia; results=hidden
 p = plot(mean(growthrates, dims=Ti), clims=(0, 0.15))
-scatter!(p, occurrence; markersize=4.0, markercolor=false,
-         markerstrokecolor=:white, markeralpha=0.2, markershape=:circle, label="obs")
+scatter!(p, occurrence;markersize=2.0, markercolor=:cyan, markershape=:cross, label=false)
+display(p)
 savefig(joinpath(basedir, "output/population_occurrence.png"))
 ```
 Load monthly distibution data and plot.
@@ -331,7 +333,7 @@ the stress responses to the map:
 ```julia; results=hidden
 modelkwargs = (
     series=aggseries,
-    tspan=DateTime(2017):Month(1):DateTime(2017, 12),
+    tspan=DateTime(2017):Year(1):DateTime(2017, 12),
 )
 precomputed = mapgrowth(growthresponse; modelkwargs...)
 ```
@@ -340,10 +342,12 @@ Then fit the other components. `throttle` will dictate how fast the interface up
 smaller on a faster one.
 
 ```julia; results=hidden
+usa = Lon(Between(-125.0, -66.96)), Lat(Between(20.0, 50))
+
 wrapper = ModelWrapper(wiltstress, coldstress, heatstress)
 throttle = 0.2
 interface = mapfit!(wrapper, modelkwargs;
-    window=(Ti(1),),
+    window=(Ti(1), aust...),
     # occurrence=occurrence,
     precomputed=precomputed,
     throttle=throttle,
@@ -371,7 +375,7 @@ Fit a model across the whole year to see where population growth is on average p
 ```julia; results=hidden
 growthrates = mapgrowth((growthresponse, wiltstress, coldstress, heatstress),
     series=series,
-    tspan=DateTime(2017, 1):Month(1):DateTime(2018, 1)
+    tspan=DateTime(2017, 1):Month(1):DateTime(2017, 12)
 );
 ```
 
