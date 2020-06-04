@@ -10,6 +10,7 @@ using DimensionalData, GeoData, ArchGDAL, Dispersal, Biosecurity
 using Statistics, Dates, Plots, Unitful, NCDatasets, Setfield
 using DimensionalData: setdims, rebuild, Between
 using ColorSchemes, Colors
+using CSV
 basedir = @__DIR__
 ```
 
@@ -18,14 +19,14 @@ basedir = @__DIR__
 We use DateTime unitsof months for the timestep:
 
 ```{julia; results=hidden}
-timestep = Day(1)
+timestep = Week(1)
 lonmin = 113.3402
 lonmax = 153.9523
 latmin = -43.62234
 latmin = -43.56234 # Fix for geodata tiff/netcdf load save errors
 latmax = -10.65125
 aust = Lon(Between(lonmin, lonmax)), Lat(Between(latmin, latmax))
-usa = Lon(Between(-125.0, -66.96)), Lat(Between(20.0, 50))
+usa = Lon(Between(-125.0, -50)), Lat(Between(4.5, 50))
 
 incursionpoints = (
     Melbourne=(-37.805896, 144.959527),
@@ -169,7 +170,7 @@ Allee effects specify minimum population required to sustain growth
 within a cell. Populations below the `minfounders` threshold will be removed.
 
 ```{julia; results=hidden}
-allee = AlleeExtinction{:population,:population}(minfounders=22.0);
+allee = AlleeExtinction{:population,:population}(minfounders=100000.0);
 ```
 # Long-distance dispersal
 
@@ -177,12 +178,57 @@ For each cell, allocate a proportion of individuals to a random cell within a gi
 
 Make a quick rule for long distance dispersal.
 
+```{julia; results=hidden}
+# using Mixers, FieldMetadata, FieldDefaults
+# abstract type AbstractJumpDispersal{R,W} <: PartialRule{R,W} end
+#
+# import FieldMetadata: @default, @description, @limits, @flattenable, @default_kw
+#                       default, description, limits, flattenable, default_kw
+#
+# import FieldDefaults: @default_kw,
+#                       default_kw
+# @chain columns @description @limits @flattenable @default_kw
+#
+# @mix @columns struct Probabilistic{PT}
+#     # Field            | Default | Flatn | Limits     | Description
+#     prob_threshold::PT | 0.1     | true  | (0.0, 1.0) | "A real number between one and zero"
+# end
+# @Probabilistic struct JumpDispersal2{R,W,SR} <: AbstractJumpDispersal{R,W}
+#     # Field       | Def  | Flatten | Limits       | Description
+#     spotrange::SR | 30.0 | true    | (0.0, 100.0) | "A number or Unitful.jl distance with the same units as cellsize"
+# end
+
+# TODO update this and test
+import DynamicGrids: gridsize, inbounds
+@inline Dispersal.applyrule!(rule::JumpDispersal{R,W}, data, state, index
+                  ) where {R,W} = begin
+      # Ignore empty cells
+      state > zero(state) || return state
+
+      # Random dispersal events
+      # rand() < rule.prob_threshold || return state
+
+      # Randomly select spotting distance
+      intspot = round(Int, rule.spotrange)
+      rnge = -intspot:intspot
+      jump = (rand(rnge), rand(rnge))
+      jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
+
+      # Update spotted cell if it's on the grid
+      if is_inbounds
+          @inbounds data[W][jumpdest...] = state + state * rule.prob_threshold
+      end
+
+      state * (1 - rule.prob_threshold)
+    end
+```
+
 # Define Jump rule
 
 ```{julia; results=hidden}
 jump = JumpDispersal{:population,:population}(
-    spotrange=10.0,
-    prob_threshold=0.1
+    spotrange=40.0,
+    prob_threshold=0.00001
 )
 ```
 

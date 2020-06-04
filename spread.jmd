@@ -12,7 +12,7 @@ Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 6):timestep:DateTime(2021, 6)
+tspan = DateTime(2017, 4):timestep:DateTime(2020, 4)
 # populationgrid = one(growthmask[Ti(1)]) .* carrycap
 populationgrid = zero(growthmask[Ti(1)])
 populationgrid += (growthmask[Ti(1)].>0) .* carrycap
@@ -25,12 +25,14 @@ Run the simulation in a DynamicGridsInteract window:
 using DynamicGridsInteract
 # init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 
+################### THIS SHOWS THAT GROWTH RATES ARE TOO HIGH ALL ROUND
+test = growthrates_zeromissing .- 0.05
 output = ElectronOutput(
 # output = InteractOutput(
     (population=populationgrid,);
     ruleset=dispersalruleset,
     mask=boolmask,
-    aux=(growthrates=growthrates_zeromissing,),
+    aux=(growthrates=test,),
     tspan=tspan,
     store=true,
     processor=inferno,
@@ -38,6 +40,46 @@ output = ElectronOutput(
     maxval=carrycap,
 )
 display(output)
+```
+
+```{julia; results=hidden}
+mitchell = CSV.File("data/Mitchell 1991 - Trap counts.csv")
+n = Vector(mitchell.trap_count)
+DateTime("01/02/2011", DateFormat("d/m/Y"))
+t = map(x -> DateTime(x, DateFormat("d/m/Y")), Vector(mitchell.date))
+t = t .+ Year(34)
+minimum(t)
+loc = Vector(mitchell.location)
+unique(loc)
+us_cline = (
+    St_Hyacinth = (45.627716, -72.956093),
+    Tifton_GA = (31.445379, -83.513415),
+    Gainsville_FL = (29.661792, -82.326272),
+    Homestead_FL=(25.470084, -80.464693),
+    Puerto_Rico=(18.267668, -66.445990),
+    Virgin_Islands=(17.728809, -64.821270),
+    Guadeloupe=(16.187087, -61.676442),
+    French_Guiana=(4.905187, -52.418892),
+)
+
+popxy = zeros(length(tspan))
+for i in 1:length(us_cline)
+    println(i)
+    (y, x) = us_cline[i]
+    for j in 1:length(tspan)
+        popxy[j] = output[j][:population][Lat(Contains(y)), Lon(Contains(x))]
+    end
+    p=plot(tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
+        xticks = tspan[1]:Month(6):tspan[2], label=keys(us_cline)[i])
+    iloc = keys(us_cline)[i]
+    it = t[loc .== String(iloc)]
+    in = n[loc .== String(iloc)]
+    scatter!(p, it, in/maximum(in))
+    ifilename = string("output/population_growth_",String(iloc),".png" )
+    display(p)
+    savefig(ifilename)
+end
+
 ```
 
 ```{julia; results=hidden}
@@ -49,7 +91,7 @@ output = ArrayOutput((population=populationgrid,);
 @time sim!(output, dispersalruleset)
 (y, x) = incursionpoints[:Tifton_GA]
 plot(output[2][:population] .* missingmask)
-plot(output[180][:population])
+plot(output[2][:population])
 
 popxy = [frame[:population][Lat(Contains(y)), Lon(Contains(x))] for frame in output]
 output[2][:population]
