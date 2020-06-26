@@ -39,6 +39,7 @@ incursionpoints = (
     Hobart=(-42.881742, 147.323879),
     Brisbane=(-27.436190, 152.990588),
     Cairns=(-16.937281, 145.747709),
+    Seisia=(-10.928891, 142.411627),
     Perth=(-31.9505, 115.8605),
     Geraldton=(-28.778138, 114.615632),
     St_Hyacinth_QC = (45.627716, -72.956093),
@@ -82,11 +83,13 @@ Load the growthrates .16layer from netcdf. Make sure the mode.span is correct.
 ```{julia; eval=false}
 growthratesfilename = "growthrates.ncd"
 growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
-growthrates = NCDarray(growthratesfilepath)[usa...] |>
+growthrates = NCDarray(growthratesfilepath)[aust...] |>
     x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
     x->permutedims(x, (Lat, Lon, Ti)) |>
     x->reverse(x; dims=Lat)
-p = plot(growthrates[Ti(1:3:12), usa...], clims=(0.0, 0.15), axis=false)
+# p = plot(growthrates[Ti(1:1:12), ], clims=(0.0, 0.15), axis=false,
+#     size=(1500, 1000))
+# savefig("output/monthly_suitability.png")
 ```
 
 Or From multiple tif files:
@@ -120,12 +123,11 @@ The missing mask can be used to mask maps before plotting.
 ```{julia; results=hidden}
 boolmask = GeoData.boolmask(growthrates[Ti(1)])
 missingmask = GeoData.missingmask(growthrates[Ti(1)])
-plot(boolmask)
-plot(missingmask)
+
 # Remove missing values from the growthrates array. We don't want them to propagate through the simulation.
 growthrates_zeromissing = replace_missing(growthrates, 0.0)
 growthmask = rebuild(boolmask, mean(growthrates_zeromissing; dims=Ti)[Ti(1)] .* boolmask .> 0)
-growthmask |> plot
+# growthmask |> plot
 
 # Check out growthrates and cropvalue arrays match
 # Broken...
@@ -153,8 +155,8 @@ Local dispersal simulates natural dispersal of populations, according
 to ability to fly or use other mechanisms.
 
 ```{julia; results=hidden}
-λ = 0.0125
-radius = 5
+λ = 0.004
+radius = 2
 @time hood = DispersalKernel{radius}(
     formulation=ExponentialKernel(λ),
     distancemethod=AreaToArea(30),
@@ -170,7 +172,7 @@ Allee effects specify minimum population required to sustain growth
 within a cell. Populations below the `minfounders` threshold will be removed.
 
 ```{julia; results=hidden}
-allee = AlleeExtinction{:population,:population}(minfounders=100000.0);
+allee = AlleeExtinction{:population,:population}(minfounders=10000.0);
 ```
 # Long-distance dispersal
 
@@ -216,7 +218,7 @@ import DynamicGrids: gridsize, inbounds
 
       # Update spotted cell if it's on the grid
       if is_inbounds
-          @inbounds data[W][jumpdest...] = state + state * rule.prob_threshold
+          @inbounds data[W][jumpdest...] += state * rule.prob_threshold
       end
 
       state * (1 - rule.prob_threshold)
@@ -227,8 +229,8 @@ import DynamicGrids: gridsize, inbounds
 
 ```{julia; results=hidden}
 jump = JumpDispersal{:population,:population}(
-    spotrange=40.0,
-    prob_threshold=0.00001
+    spotrange=60.0,
+    prob_threshold=0.05
 )
 ```
 
@@ -239,7 +241,6 @@ values with something else Dispersal.jl init can't contain `missing` or it will 
 
 ```{julia; results=hidden}
 populationgrid = replace_missing(zero(growthrates[Ti(1)]), NaN)
-degreedaygrid = deepcopy(populationgrid)
 init_popgrid!(popgrid, (lat, lon), initsize) = begin
    popgrid .= 0.0
    popgrid[Lat(Contains(lat)), Lon(Contains(lon))] = initsize

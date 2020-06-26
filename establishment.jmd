@@ -133,8 +133,8 @@ Using the monthly aggregated SMAP dataset
 # smap_folder = "/home/raf/Work/cesar/Data/SMAP"
 # smap_folder = "F:/SMAP/SMAP_monthly_midpoint_subset"
 smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
-smapfiles = joinpath.(smap_folder, [f for f in readdir(smap_folder) if occursin(r".h5$", f) && occursin("_2017" , f)])
-smapfiles = smapfiles[match.(r"01T|15T", smapfiles) .!= nothing]
+smapfiles = joinpath.(smap_folder, [f for f in readdir(smap_folder) if occursin(r".h5$", f) && occursin("_2018" , f)])
+smapfiles = smapfiles[match.(r"01T|08T|16T|24T", smapfiles) .!= nothing]
 series = SMAPseries(smapfiles)
 # series = seriesall[Where(t -> dayofmonth(t) in days)]
 # series = series[Where(t -> year(t) in 2017)]
@@ -206,23 +206,32 @@ incorporating population mortality under acute stress. Now define some stressors
 
 ```julia; results=hidden
 coldthresh = 13.0°C |> K
-coldmort = -0.1 * K^-1
+coldmort = -0.2 * K^-1
 coldstress = Layer(:surface_temp, K, ColdStress(coldthresh, coldmort))
 
 heatthresh = 40.0°C |> K
-heatmort = -0.12 * K^-1
+heatmort = -0.02 * K^-1
 heatstress = Layer(:surface_temp, K, HeatStress(heatthresh, heatmort))
 
-wiltthresh = 0.1
+wiltthresh = .5
 wiltmort = -0.2
 wiltstress = Layer(:land_fraction_wilting, WiltStress(wiltthresh, wiltmort));
+```
+check that yeme can be fit
+```julia; results=hidden
+yemen = Lon(Between(-30.0, 55.0)), Lat(Between(-30, 20))
+stress = mapgrowth(growthresponse, coldstress, wiltstress, heatstress;
+    series=aggseries,
+    tspan=DateTime(2018, 1):Year(1):DateTime(2018, 12)
+)
+plot(mean(stress[yemen...], dims=Ti), clim=(0, 0.15))
 ```
 
 To build a more complex model, we can chain components together in a tuple,
 and run them:
 
 ```julia; results=hidden
-tspan = DateTime(2017, 1):Year(1):DateTime(2017, 12)
+tspan = DateTime(2018, 1):Year(1):DateTime(2018, 12)
 length(tspan)
 annualgrowthrates = mapgrowth((growthresponse, wiltstress, heatstress, coldstress);
     series=aggseries,
@@ -296,7 +305,7 @@ for m in unique(months)
     scatter!(p[m], mx, my, markersize=2.0, markercolor=:cyan, markershape=:cross, label=false)
 end
 display(p)
-savefig("output/population_occurrence.png")
+savefig("output/population_occurrence_monthly.png")
 ```
 
 Fit a model across the whole year to see where population growth is on average positive across the year.
@@ -375,7 +384,7 @@ Fit a model across the whole year to see where population growth is on average p
 ```julia; results=hidden
 growthrates = mapgrowth((growthresponse, wiltstress, coldstress, heatstress),
     series=series,
-    tspan=DateTime(2017, 1):Month(1):DateTime(2017, 12)
+    tspan=DateTime(2018, 1):Month(1):DateTime(2018, 12)
 );
 ```
 

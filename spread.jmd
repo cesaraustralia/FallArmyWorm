@@ -11,10 +11,13 @@ In this example we will run a simulation of the spread of the Fall Armyworm _Spo
 Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
+TODO
+improve spread parameters for US
+
 ```{julia; results=hidden}
-tspan = DateTime(2017, 4):timestep:DateTime(2020, 4)
-# populationgrid = one(growthmask[Ti(1)]) .* carrycap
-populationgrid = zero(growthmask[Ti(1)])
+tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
+populationgrid = replace_missing(zero(growthrates[Ti(1)]), NaN)
+# init_popgrid!(populationgrid, incursionpoints[:Seisia], 1.0e6)
 populationgrid += (growthmask[Ti(1)].>0) .* carrycap
 
 ```
@@ -23,16 +26,14 @@ Run the simulation in a DynamicGridsInteract window:
 ```{julia; results=hidden}
 #TODO need to pass through zero() to remove Ti dimension
 using DynamicGridsInteract
-# init_popgrid!(populationgrid, incursionpoints[:Texas], carrycap)
 
 ################### THIS SHOWS THAT GROWTH RATES ARE TOO HIGH ALL ROUND
-test = growthrates_zeromissing .- 0.05
 output = ElectronOutput(
 # output = InteractOutput(
     (population=populationgrid,);
     ruleset=dispersalruleset,
     mask=boolmask,
-    aux=(growthrates=test,),
+    aux=(growthrates=growthrates_zeromissing,),
     tspan=tspan,
     store=true,
     processor=inferno,
@@ -40,14 +41,83 @@ output = ElectronOutput(
     maxval=carrycap,
 )
 display(output)
+
+using NCDatasets
+
+mysubset = findall(
+    (collect(tspan) .>= DateTime("15/01/2018", DateFormat("d/m/Y"))) .&
+    (collect(tspan) .< DateTime("01/01/2019", DateFormat("d/m/Y"))))
+mysubset = mysubset[1:4:length(mysubset)]
+tspan[mysubset]
+
+
+
+# write("test.ncd", NCDarray, output[1][:population])
+
+```
+Plot seasonal activity for each GRDC region
+
+```{julia; results=hidden}
+using DataFrames, CSV
+
+output = ArrayOutput((population=populationgrid,);
+    mask=boolmask,
+    aux=(growthrates=growthrates_zeromissing,),
+    tspan=tspan,
+)
+@time sim!(output, dispersalruleset)
+
+GRDCregion = CSV.read("data/growingregion_coords.csv")
+d = DataFrame(
+    GRDCregion = String[],
+    rep = Int[],
+    date = Date[],
+    lon = Float64[],
+    lat = Float64[],
+    popsize = Float64[],
+)
+popxy = zeros(length(tspan))
+nreps = 100
+for rep in 1:nreps
+    println(rep, " of ", nreps)
+    @time sim!(output, dispersalruleset)
+    p=plot()
+    for i in 1:size(GRDCregion, 1)
+        iloc = GRDCregion.Region[i]
+        x = GRDCregion.Longitude[i]
+        y = GRDCregion.Latitude[i]
+            for j in 1:length(tspan)
+                popxy[j] = output[j][:population][Lat(Contains(y)), Lon(Contains(x))]
+                push!(d, (iloc, rep, tspan[j], x, y, popxy[j]))
+            end
+            plot!(p, tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
+                xticks = tspan[1]:Month(6):tspan[2], label=iloc)
+            it = t[loc .== String(iloc)]
+            in = n[loc .== String(iloc)]
+    end
+    display(p)
+end
+
+
+ifilename = string("output/GRDC_region_FAW_activity.png" )
+savefig(ifilename)
+replace(ifilename,  ".png" => ".csv")
+CSV.write(replace(ifilename,  ".png" => ".csv"), d)
 ```
 
 ```{julia; results=hidden}
+# output = ArrayOutput((population=populationgrid,);
+#     mask=boolmask,
+#     aux=(growthrates=growthrates_zeromissing,),
+#     tspan=tspan,
+# )
+# @time sim!(output, dispersalruleset)
+
+
 mitchell = CSV.File("data/Mitchell 1991 - Trap counts.csv")
 n = Vector(mitchell.trap_count)
-DateTime("01/02/2011", DateFormat("d/m/Y"))
 t = map(x -> DateTime(x, DateFormat("d/m/Y")), Vector(mitchell.date))
-t = t .+ Year(34)
+t = t .+ Year(36)
 minimum(t)
 loc = Vector(mitchell.location)
 unique(loc)
@@ -61,7 +131,6 @@ us_cline = (
     Guadeloupe=(16.187087, -61.676442),
     French_Guiana=(4.905187, -52.418892),
 )
-
 popxy = zeros(length(tspan))
 for i in 1:length(us_cline)
     println(i)
@@ -81,6 +150,7 @@ for i in 1:length(us_cline)
 end
 
 ```
+
 
 ```{julia; results=hidden}
 output = ArrayOutput((population=populationgrid,);
@@ -106,7 +176,7 @@ using DynamicGridsGtk
 output = GtkOutput(
     (population=populationgrid,),
     mask=boolmask,
-    aux=(growthrates=growthrates_zeromissing,),
+    aux=(growthrates=test,),
     tspan=tspan,
     store=true,
     processor=inferno,
@@ -119,7 +189,7 @@ sim!(output, dispersalruleset)
 And save it as a gif:
 
 ```{julia; results=hidden}
-savegif(joinpath(basedir, "output/dispersal.gif"), output, dispersalruleset; fps=30)
+savegif(joinpath(basedir, "output/dispersalaus.gif"), output, dispersalruleset; processor=inferno, fps=3)
 ```
 
 Now with replicates:
