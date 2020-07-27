@@ -1,19 +1,19 @@
-﻿Region,Latitude,Longitude
-WA Ord,-15.784532,126.946445
-QLD Atherton,-17.254325,145.475268
-QLD Burdekin,-19.851847,147.22045
-QLD Central,-23.526092,148.50585
-NSW North west - QLD South west,-26.64979,147.84667
-NSW North east - QLD South east,-27.120134,149.58251
-NSW Central,-33.186065,146.360508
-NSW VIC Slopes,-34.318714,148.68961
-VIC High Rainfall,-36.838086,143.877598
-SA VIC Bordertown - Wimmera,-35.811354,142.866856
-SA VIC Mallee,-35.059454,141.944004
-SA Midnorth - Lower Yorke Eyre,-33.946862,135.634622
-WA Mallee,-32.688112,123.035313
-WA Sandplain,-33.461413,121.980625
-WA Eastern,-31.046059,118.772617
-WA Central,-32.762053,117.542149
-WA Northern,-29.375182,116.135899
-TAS Grain,-41.86772,147.38773
+﻿Region,Region_short,Region_code,Latitude,Longitude
+WA Ord,Ord,1,-15.784532,126.946445
+QLD Atherton,Atherton,2,-17.254325,145.475268
+QLD Burdekin,Burdekin,3,-19.851847,147.22045
+QLD Central,Central,4,-23.526092,148.50585
+NSW North west - QLD South west,NSW North west - QLD South west,5,-26.64979,147.84667
+NSW North east - QLD South east,NSW North east - QLD South east,6,-27.120134,149.58251
+NSW Central,Central,7,-33.186065,146.360508
+NSW VIC Slopes,,8,-34.318714,148.68961
+VIC High Rainfall,High Rainfall,9,-36.838086,143.877598
+SA VIC Bordertown - Wimmera,SA VIC Bordertown - Wimmera,10,-35.811354,142.866856
+SA VIC Mallee,SA VIC Mallee,11,-35.059454,141.944004
+SA Midnorth - Lower Yorke Eyre,Midnorth - Lower Yorke Eyre,12,-33.946862,135.634622
+WA Mallee,Mallee,13,-32.688112,123.035313
+WA Sandplain,Sandplain,14,-33.461413,121.980625
+WA Eastern,Eastern,15,-31.046059,118.772617
+WA Central,Central,16,-32.762053,117.542149
+WA Northern,Northern,17,-29.375182,116.135899
+TAS Grain,Grain,18,-41.86772,147.38773

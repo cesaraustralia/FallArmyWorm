@@ -11,14 +11,12 @@ In this example we will run a simulation of the spread of the Fall Armyworm _Spo
 Set up a simple rule that just copies the growthrate layer to a grid so that
 we can view it next to the simulation.
 
-TODO
-improve spread parameters for US
 
 ```{julia; results=hidden}
 tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
-populationgrid = replace_missing(zero(growthrates[Ti(1)]), NaN)
+populationgridaus = replace_missing(zero(growthratesaus[Ti(1)]), NaN)
 # init_popgrid!(populationgrid, incursionpoints[:Seisia], 1.0e6)
-populationgrid += (growthmask[Ti(1)].>0) .* carrycap
+populationgridaus += (growthmaskaus[Ti(1)].>0) .* carrycap
 
 ```
 Run the simulation in a DynamicGridsInteract window:
@@ -30,10 +28,10 @@ using DynamicGridsInteract
 ################### THIS SHOWS THAT GROWTH RATES ARE TOO HIGH ALL ROUND
 output = ElectronOutput(
 # output = InteractOutput(
-    (population=populationgrid,);
+    (population=populationgridaus,);
     ruleset=dispersalruleset,
     mask=boolmask,
-    aux=(growthrates=growthrates_zeromissing,),
+    aux=(growthrates=growthrates_zeromissingaus,),
     tspan=tspan,
     store=true,
     processor=inferno,
@@ -42,30 +40,30 @@ output = ElectronOutput(
 )
 display(output)
 
-using NCDatasets
-
-mysubset = findall(
-    (collect(tspan) .>= DateTime("15/01/2018", DateFormat("d/m/Y"))) .&
-    (collect(tspan) .< DateTime("01/01/2019", DateFormat("d/m/Y"))))
-mysubset = mysubset[1:4:length(mysubset)]
-tspan[mysubset]
-
-
-
-# write("test.ncd", NCDarray, output[1][:population])
-
 ```
 Plot seasonal activity for each GRDC region
 
 ```{julia; results=hidden}
-using DataFrames, CSV
+using DataFrames, CSV, NCDatasets
 
-output = ArrayOutput((population=populationgrid,);
+output = ArrayOutput((population=populationgridaus,);
     mask=boolmask,
-    aux=(growthrates=growthrates_zeromissing,),
+    aux=(growthrates=growthrates_zeromissingaus,),
     tspan=tspan,
 )
 @time sim!(output, dispersalruleset)
+
+mysubset=Vector{Int}(undef,12)
+for c = 1:12
+    println(c)
+    mysubset[c] =
+        findall((tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
+end
+tspan[mysubset]
+
+for i in mysubset
+    write(string("output/aus_spread/", Date(tspan[i]), ".ncd"), NCDarray, output[i][:population])
+end
 
 GRDCregion = CSV.read("data/growingregion_coords.csv")
 d = DataFrame(
@@ -92,8 +90,6 @@ for rep in 1:nreps
             end
             plot!(p, tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
                 xticks = tspan[1]:Month(6):tspan[2], label=iloc)
-            it = t[loc .== String(iloc)]
-            in = n[loc .== String(iloc)]
     end
     display(p)
 end
@@ -105,14 +101,20 @@ replace(ifilename,  ".png" => ".csv")
 CSV.write(replace(ifilename,  ".png" => ".csv"), d)
 ```
 
-```{julia; results=hidden}
-# output = ArrayOutput((population=populationgrid,);
-#     mask=boolmask,
-#     aux=(growthrates=growthrates_zeromissing,),
-#     tspan=tspan,
-# )
-# @time sim!(output, dispersalruleset)
+Run simulation for USA and plot against trap data
 
+```{julia; results=hidden}
+tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
+populationgridusa = replace_missing(zero(growthratesusa[Ti(1)]), NaN)
+# init_popgrid!(populationgrid, incursionpoints[:Seisia], 1.0e6)
+populationgridusa += (growthmaskusa[Ti(1)].>0) .* carrycap
+
+output = ArrayOutput((population=populationgridusa,);
+    mask=boolmaskusa,
+    aux=(growthrates=growthrates_zeromissingusa,),
+    tspan=tspan,
+)
+@time sim!(output, dispersalruleset)
 
 mitchell = CSV.File("data/Mitchell 1991 - Trap counts.csv")
 n = Vector(mitchell.trap_count)
@@ -148,6 +150,19 @@ for i in 1:length(us_cline)
     display(p)
     savefig(ifilename)
 end
+
+mysubset=Vector{Int}(undef,12)
+for c = 1:12
+    println(c)
+    mysubset[c] =
+        findall((tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
+end
+tspan[mysubset]
+
+for i in mysubset
+    write(string("output/usa_spread/", Date(tspan[i]), ".ncd"), NCDarray, output[i][:population])
+end
+
 
 ```
 

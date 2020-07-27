@@ -83,13 +83,22 @@ Load the growthrates .16layer from netcdf. Make sure the mode.span is correct.
 ```{julia; eval=false}
 growthratesfilename = "growthrates.ncd"
 growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
-growthrates = NCDarray(growthratesfilepath)[aust...] |>
+growthratesaus = NCDarray(growthratesfilepath)[aust...] |>
+    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
+    x->permutedims(x, (Lat, Lon, Ti)) |>
+    x->reverse(x; dims=Lat)
+
+growthratesusa = NCDarray(growthratesfilepath)[usa...] |>
     x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
     x->permutedims(x, (Lat, Lon, Ti)) |>
     x->reverse(x; dims=Lat)
 # p = plot(growthrates[Ti(1:1:12), ], clims=(0.0, 0.15), axis=false,
 #     size=(1500, 1000))
 # savefig("output/monthly_suitability.png")
+
+plot(growthratesusa[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
+plot(mean(growthratesusa; dims=Ti); clims=(0, 0.15))
+
 ```
 
 Or From multiple tif files:
@@ -107,13 +116,6 @@ Or From multiple tif files:
 # plot(growthrates[Ti(3)])
 ```
 
-Plot the growth layer:
-
-```{julia; results=hidden}
-plot(growthrates[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
-plot(mean(growthrates; dims=Ti); clims=(0, 0.15))
-```
-
 
 ### Define masking layers
 
@@ -121,12 +123,18 @@ The boolean mask lets the simulation know which cells should be ignored.
 The missing mask can be used to mask maps before plotting.
 
 ```{julia; results=hidden}
-boolmask = GeoData.boolmask(growthrates[Ti(1)])
-missingmask = GeoData.missingmask(growthrates[Ti(1)])
+# usa
+boolmaskusa = GeoData.boolmask(growthratesusa[Ti(1)])
+missingmaskusa = GeoData.missingmask(growthratesusa[Ti(1)])
+growthrates_zeromissingusa = replace_missing(growthratesusa, 0.0)
+growthmaskusa = rebuild(boolmaskusa, mean(growthrates_zeromissingusa; dims=Ti)[Ti(1)] .* boolmaskusa .> 0)
 
-# Remove missing values from the growthrates array. We don't want them to propagate through the simulation.
-growthrates_zeromissing = replace_missing(growthrates, 0.0)
-growthmask = rebuild(boolmask, mean(growthrates_zeromissing; dims=Ti)[Ti(1)] .* boolmask .> 0)
+#aus
+boolmaskaus = GeoData.boolmask(growthratesaus[Ti(1)])
+missingmaskaus = GeoData.missingmask(growthratesaus[Ti(1)])
+growthrates_zeromissingaus = replace_missing(growthratesaus, 0.0)
+growthmaskaus = rebuild(boolmaskaus, mean(growthrates_zeromissingaus; dims=Ti)[Ti(1)] .* boolmaskaus .> 0)
+
 # growthmask |> plot
 
 # Check out growthrates and cropvalue arrays match
@@ -234,18 +242,6 @@ jump = JumpDispersal{:population,:population}(
 )
 ```
 
-### Define initialisation data
-
-Make a zeros array and populate the starting cells. We need to replace the `missing`
-values with something else Dispersal.jl init can't contain `missing` or it will spread everywhere:
-
-```{julia; results=hidden}
-populationgrid = replace_missing(zero(growthrates[Ti(1)]), NaN)
-init_popgrid!(popgrid, (lat, lon), initsize) = begin
-   popgrid .= 0.0
-   popgrid[Lat(Contains(lat)), Lon(Contains(lon))] = initsize
-end
-```
 
 ### Define a combined ruleset
 ```{julia; results=hidden}
