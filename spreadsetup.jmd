@@ -98,7 +98,6 @@ growthratesusa = NCDarray(growthratesfilepath)[usa...] |>
 
 plot(growthratesusa[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
 plot(mean(growthratesusa; dims=Ti); clims=(0, 0.15))
-
 ```
 
 Or From multiple tif files:
@@ -210,27 +209,27 @@ Make a quick rule for long distance dispersal.
 
 # TODO update this and test
 import DynamicGrids: gridsize, inbounds
-@inline Dispersal.applyrule!(rule::JumpDispersal{R,W}, data, state, index
+@inline Dispersal.applyrule!(data, rule::JumpDispersal{R,W}, state, index
                   ) where {R,W} = begin
-      # Ignore empty cells
-      state > zero(state) || return state
+    # Ignore empty cells
+    state > zero(state) || return state
 
-      # Random dispersal events
-      # rand() < rule.prob_threshold || return state
+    # Random dispersal events
+    # rand() < rule.prob_threshold || return state
 
-      # Randomly select spotting distance
-      intspot = round(Int, rule.spotrange)
-      rnge = -intspot:intspot
-      jump = (rand(rnge), rand(rnge))
-      jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
+    # Randomly select spotting distance
+    intspot = round(Int, rule.spotrange)
+    rnge = -intspot:intspot
+    jump = (rand(rnge), rand(rnge))
+    jumpdest, is_inbounds = inbounds(jump .+ index, gridsize(data), RemoveOverflow())
 
-      # Update spotted cell if it's on the grid
-      if is_inbounds
-          @inbounds data[W][jumpdest...] += state * rule.prob_threshold
-      end
-
-      state * (1 - rule.prob_threshold)
+    # Update spotted cell if it's on the grid
+    if is_inbounds
+      @inbounds data[W][jumpdest...] += state * rule.prob_threshold
     end
+
+    state * (1 - rule.prob_threshold)
+end
 ```
 
 # Define Jump rule
@@ -241,7 +240,6 @@ jump = JumpDispersal{:population,:population}(
     prob_threshold=0.05
 )
 ```
-
 
 ### Define a combined ruleset
 ```{julia; results=hidden}
@@ -257,7 +255,8 @@ Define some color processors to use in live simuulations.
 ```{julia; results=hidden}
 zerocolor = ARGB32(0.7)
 maskcolor = ARGB32(0.2)
-textconfig = TextConfig(font="arial", bcolor=zerocolor, fcolor=maskcolor)
+# textconfig = TextConfig(font="arial", bcolor=maskcolor, fcolor=zerocolor)
+textconfig = TextConfig(font="cantarell", bcolor=maskcolor, fcolor=zerocolor)
 oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor, textconfig)
 jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor, textconfig)
 viridis = ColorProcessor(ColorSchemes.viridis, zerocolor, maskcolor, textconfig)

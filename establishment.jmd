@@ -129,13 +129,17 @@ that use the same source data, like `(growth, heatstress, coldstress)`.
 Using the monthly aggregated SMAP dataset
 
 ```julia; results=hidden
-#smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
+smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
 # smap_folder = "/home/raf/Work/cesar/Data/SMAP"
 # smap_folder = "F:/SMAP/SMAP_monthly_midpoint_subset"
-smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
-smapfiles = joinpath.(smap_folder, [f for f in readdir(smap_folder) if occursin(r".h5$", f) && occursin("_2018" , f)])
-smapfiles = smapfiles[match.(r"01T|08T|16T|24T", smapfiles) .!= nothing]
-series = SMAPseries(smapfiles)
+# smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
+
+# This is no longer needed as SMAPseries uses regex and is fast
+# smapfiles = joinpath.(smap_folder, [f for f in readdir(smap_folder) if occursin(r".h5$", f) && occursin("_2018" , f)])
+# smapfiles = smapfiles[match.(r"01T|08T|16T|24T", smapfiles) .!= nothing]
+# This does the same as the above
+days = (1, 8, 16, 24)
+series = SMAPseries(smapfolder)[Where(t -> (t >= DateTime(2018) && t < DateTime(2019)) && dayofmonth(t) in days)]
 # series = seriesall[Where(t -> dayofmonth(t) in days)]
 # series = series[Where(t -> year(t) in 2017)]
 ```
@@ -182,7 +186,7 @@ predictions are more responsive to parameter adjustments.
 
 ```julia; results=hidden
 agg = 10
-aggseries = GeoData.aggregate(Center(), series, (Lon(agg), Lat(agg)), (:land_fraction_wilting, :surface_temp))
+aggseries = GeoData.aggregate(Center(), series, (Lon(agg), Lat(agg)); keys=(:land_fraction_wilting, :surface_temp))
 p = first(aggseries[1]) |> plot
 ```
 
@@ -194,7 +198,7 @@ First we'll run this basic growth model, calculating the daily growth rate acros
 ```julia; results=hidden
 growthrates = mapgrowth(growthresponse;
     series=aggseries,
-    tspan=DateTime(2017, 1):Year(1):DateTime(2017, 12)
+    tspan=DateTime(2018, 1):Year(1):DateTime(2018, 12)
 )
 plot(growthrates[Ti(1)], clim=(0, 0.15))
 ```
@@ -242,7 +246,7 @@ plot(annualgrowthrates[Ti(1)], clim=(0, 0.15))
 We can also get monthly growth rates for a spatial subsection defined by longitude and latitudes:
 
 ```julia; results=hidden
-tspan = DateTime(2017):Month(1):DateTime(2017, 12)
+tspan = DateTime(2018):Month(1):DateTime(2018, 12)
 length(tspan)
 monthlygrowthrates = mapgrowth((growthresponse, wiltstress, heatstress, coldstress);
     series=aggseries, tspan=tspan,
@@ -262,7 +266,7 @@ is equivalent due to the additive nature of exponents (e.g. exp(a) * exp(b) = ex
 ```julia; results=hidden
 growthdiff = annualgrowthrates[Ti(1)] .- mean(monthlygrowthrates, dims=Ti)[1]
 sum(map(x -> isnan(x) ? zero(x) : x, growthdiff))
-tspan = DateTime(2017):Month(1):DateTime(2017, 12)
+tspan = DateTime(2018):Month(1):DateTime(2018, 12)
 length(tspan)
 growthrates = mapgrowth((growthresponse, heatstress, coldstress, wiltstress);
     series=aggseries, tspan=tspan,

@@ -13,33 +13,32 @@ we can view it next to the simulation.
 
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
+aus_tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
 populationgridaus = replace_missing(zero(growthratesaus[Ti(1)]), NaN)
 # init_popgrid!(populationgrid, incursionpoints[:Seisia], 1.0e6)
 populationgridaus += (growthmaskaus[Ti(1)].>0) .* carrycap
-
 ```
 Run the simulation in a DynamicGridsInteract window:
 
 ```{julia; results=hidden}
-#TODO need to pass through zero() to remove Ti dimension
 using DynamicGridsInteract
+# using DynamicGridsGtk
 
 ################### THIS SHOWS THAT GROWTH RATES ARE TOO HIGH ALL ROUND
-output = ElectronOutput(
-# output = InteractOutput(
+# output = GtkOutput(
+output = InteractOutput(
     (population=populationgridaus,);
     ruleset=dispersalruleset,
-    mask=boolmask,
+    mask=boolmaskaus,
     aux=(growthrates=growthrates_zeromissingaus,),
-    tspan=tspan,
+    tspan=aus_tspan,
     store=true,
     processor=inferno,
     minval=zero(carrycap),
     maxval=carrycap,
 )
 display(output)
-
+sim!(output, dispersalruleset)
 ```
 Plot seasonal activity for each GRDC region
 
@@ -59,10 +58,10 @@ for c = 1:12
     mysubset[c] =
         findall((tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
 end
-tspan[mysubset]
+aus_tspan[mysubset]
 
 for i in mysubset
-    write(string("output/aus_spread/", Date(tspan[i]), ".ncd"), NCDarray, output[i][:population])
+    write(string("output/aus_spread/", Date(aus_tspan[i]), ".ncd"), NCDarray, output[i][:population])
 end
 
 GRDCregion = CSV.read("data/growingregion_coords.csv")
@@ -74,7 +73,7 @@ d = DataFrame(
     lat = Float64[],
     popsize = Float64[],
 )
-popxy = zeros(length(tspan))
+popxy = zeros(length(aus_tspan))
 nreps = 100
 for rep in 1:nreps
     println(rep, " of ", nreps)
@@ -84,7 +83,7 @@ for rep in 1:nreps
         iloc = GRDCregion.Region[i]
         x = GRDCregion.Longitude[i]
         y = GRDCregion.Latitude[i]
-            for j in 1:length(tspan)
+            for j in 1:length(aus_tspan)
                 popxy[j] = output[j][:population][Lat(Contains(y)), Lon(Contains(x))]
                 push!(d, (iloc, rep, tspan[j], x, y, popxy[j]))
             end
@@ -104,7 +103,7 @@ CSV.write(replace(ifilename,  ".png" => ".csv"), d)
 Run simulation for USA and plot against trap data
 
 ```{julia; results=hidden}
-tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
+us_tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
 populationgridusa = replace_missing(zero(growthratesusa[Ti(1)]), NaN)
 # init_popgrid!(populationgrid, incursionpoints[:Seisia], 1.0e6)
 populationgridusa += (growthmaskusa[Ti(1)].>0) .* carrycap
@@ -112,7 +111,7 @@ populationgridusa += (growthmaskusa[Ti(1)].>0) .* carrycap
 output = ArrayOutput((population=populationgridusa,);
     mask=boolmaskusa,
     aux=(growthrates=growthrates_zeromissingusa,),
-    tspan=tspan,
+    tspan=us_tspan,
 )
 @time sim!(output, dispersalruleset)
 
@@ -133,15 +132,15 @@ us_cline = (
     Guadeloupe=(16.187087, -61.676442),
     French_Guiana=(4.905187, -52.418892),
 )
-popxy = zeros(length(tspan))
+popxy = zeros(length(us_tspan))
 for i in 1:length(us_cline)
     println(i)
     (y, x) = us_cline[i]
-    for j in 1:length(tspan)
+    for j in 1:length(us_tspan)
         popxy[j] = output[j][:population][Lat(Contains(y)), Lon(Contains(x))]
     end
-    p=plot(tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
-        xticks = tspan[1]:Month(6):tspan[2], label=keys(us_cline)[i])
+    p=plot(us_tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
+        xticks = us_tspan[1]:Month(6):us_tspan[2], label=keys(us_cline)[i])
     iloc = keys(us_cline)[i]
     it = t[loc .== String(iloc)]
     in = n[loc .== String(iloc)]
@@ -155,12 +154,12 @@ mysubset=Vector{Int}(undef,12)
 for c = 1:12
     println(c)
     mysubset[c] =
-        findall((tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
+        findall((us_tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
 end
-tspan[mysubset]
+us_tspan[mysubset]
 
 for i in mysubset
-    write(string("output/usa_spread/", Date(tspan[i]), ".ncd"), NCDarray, output[i][:population])
+    write(string("output/usa_spread/", Date(us_tspan[i]), ".ncd"), NCDarray, output[i][:population])
 end
 
 
@@ -171,7 +170,7 @@ end
 output = ArrayOutput((population=populationgrid,);
     mask=boolmask,
     aux=(growthrates=growthrates_zeromissing,),
-    tspan=tspan,
+    tspan=us_tspan,
 )
 @time sim!(output, dispersalruleset)
 (y, x) = incursionpoints[:Tifton_GA]
@@ -182,7 +181,7 @@ popxy = [frame[:population][Lat(Contains(y)), Lon(Contains(x))] for frame in out
 output[2][:population]
 maximum(output[1][:population])
 typeof(output[2][:population])
-plot(tspan, popxy)
+plot(us_tspan, popxy)
 ```
 
 ```{julia; results=hidden}
@@ -192,7 +191,7 @@ output = GtkOutput(
     (population=populationgrid,),
     mask=boolmask,
     aux=(growthrates=test,),
-    tspan=tspan,
+    tspan=us_tspan,
     store=true,
     processor=inferno,
     minval=zero(carrycap),
