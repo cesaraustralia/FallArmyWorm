@@ -27,7 +27,7 @@ latmin = -43.56234 # Fix for geodata tiff/netcdf load save errors
 latmax = -10.65125
 aust = Lon(Between(lonmin, lonmax)), Lat(Between(latmin, latmax))
 usa = Lon(Between(-125.0, -50)), Lat(Between(4.5, 50))
-
+tropics = Lon(Between(-6.0, 147)), Lat(Between(-16, 34.0))
 incursionpoints = (
     Melbourne=(-37.805896, 144.959527),
     Mildura=(-34.219504, 142.130864),
@@ -81,20 +81,22 @@ dispersal.
 Load the growthrates .16layer from netcdf. Make sure the mode.span is correct.
 
 ```{julia; eval=false}
-growthratesfilename = "growthrates.ncd"
-growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
-growthratesaus = NCDarray(growthratesfilepath)[aust...] |>
-    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
-    x->permutedims(x, (Lat, Lon, Ti)) |>
-    x->reverse(x; dims=Lat)
+function loadgrowthrates(growthratesfilename, latlonbounds)
+    growthratesfilepath = joinpath(basedir, "data", growthratesfilename)
+    NCDarray(growthratesfilepath)[latlonbounds...] |>
+        x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
+        x->permutedims(x, (Lat, Lon, Ti)) |>
+        x->reverse(x; dims=Lat)
+end
 
-growthratesusa = NCDarray(growthratesfilepath)[usa...] |>
-    x->setdims(x, (@set dims(x, Ti).mode.span = Regular(Month(1)))) |>
-    x->permutedims(x, (Lat, Lon, Ti)) |>
-    x->reverse(x; dims=Lat)
-# p = plot(growthrates[Ti(1:1:12), ], clims=(0.0, 0.15), axis=false,
-#     size=(1500, 1000))
-# savefig("output/monthly_suitability.png")
+
+growthratestropics = loadgrowthrates("growthrates2018.ncd", tropics)
+growthratesusa = loadgrowthrates("growthrates2018.ncd", usa)
+
+growthratesaus2016 = loadgrowthrates("growthrates2016.ncd", aust)
+growthratesaus2017 = loadgrowthrates("growthrates2017.ncd", aust)
+growthratesaus2018 = loadgrowthrates("growthrates2018.ncd", aust)
+growthratesaus2019 = loadgrowthrates("growthrates2019.ncd", aust)
 
 plot(growthratesusa[Ti(1:3:12)]; legend=:none, clims=(0.0, 0.15))
 plot(mean(growthratesusa; dims=Ti); clims=(0, 0.15))
@@ -122,6 +124,12 @@ The boolean mask lets the simulation know which cells should be ignored.
 The missing mask can be used to mask maps before plotting.
 
 ```{julia; results=hidden}
+# tropics
+boolmasktropics = GeoData.boolmask(growthratestropics[Ti(1)])
+missingmasktropics = GeoData.missingmask(growthratestropics[Ti(1)])
+growthrates_zeromissingtropics = replace_missing(growthratestropics, 0.0)
+growthmasktropics = rebuild(boolmasktropics, mean(growthrates_zeromissingtropics; dims=Ti)[Ti(1)] .* boolmasktropics .> 0)
+
 # usa
 boolmaskusa = GeoData.boolmask(growthratesusa[Ti(1)])
 missingmaskusa = GeoData.missingmask(growthratesusa[Ti(1)])
@@ -129,10 +137,15 @@ growthrates_zeromissingusa = replace_missing(growthratesusa, 0.0)
 growthmaskusa = rebuild(boolmaskusa, mean(growthrates_zeromissingusa; dims=Ti)[Ti(1)] .* boolmaskusa .> 0)
 
 #aus
-boolmaskaus = GeoData.boolmask(growthratesaus[Ti(1)])
-missingmaskaus = GeoData.missingmask(growthratesaus[Ti(1)])
-growthrates_zeromissingaus = replace_missing(growthratesaus, 0.0)
-growthmaskaus = rebuild(boolmaskaus, mean(growthrates_zeromissingaus; dims=Ti)[Ti(1)] .* boolmaskaus .> 0)
+boolmaskaus = GeoData.boolmask(growthratesaus2016[Ti(1)])
+missingmaskaus = GeoData.missingmask(growthratesaus2016[Ti(1)])
+
+growthrates_zeromissingaus2016 = replace_missing(growthratesaus2016, 0.0)
+growthrates_zeromissingaus2017 = replace_missing(growthratesaus2017, 0.0)
+growthrates_zeromissingaus2018 = replace_missing(growthratesaus2018, 0.0)
+growthrates_zeromissingaus2019 = replace_missing(growthratesaus2019, 0.0)
+
+growthmaskaus = rebuild(boolmaskaus, mean(growthrates_zeromissingaus2016; dims=Ti)[Ti(1)] .* boolmaskaus .> 0)
 
 # growthmask |> plot
 
@@ -255,8 +268,8 @@ Define some color processors to use in live simuulations.
 ```{julia; results=hidden}
 zerocolor = ARGB32(0.7)
 maskcolor = ARGB32(0.2)
-# textconfig = TextConfig(font="arial", bcolor=maskcolor, fcolor=zerocolor)
-textconfig = TextConfig(font="cantarell", bcolor=maskcolor, fcolor=zerocolor)
+textconfig = TextConfig(font="arial", bcolor=maskcolor, fcolor=zerocolor)
+# textconfig = TextConfig(font="cantarell", bcolor=maskcolor, fcolor=zerocolor)
 oranges = ColorProcessor(ColorSchemes.Oranges_3, zerocolor, maskcolor, textconfig)
 jet = ColorProcessor(ColorSchemes.jet, zerocolor, maskcolor, textconfig)
 viridis = ColorProcessor(ColorSchemes.viridis, zerocolor, maskcolor, textconfig)

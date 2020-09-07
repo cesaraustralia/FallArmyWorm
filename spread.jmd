@@ -14,7 +14,7 @@ we can view it next to the simulation.
 
 ```{julia; results=hidden}
 aus_tspan = DateTime(2020, 3):timestep:DateTime(2023, 3)
-populationgridaus = replace_missing(zero(growthratesaus[Ti(1)]), NaN)
+populationgridaus = replace_missing(zero(growthratesaus2016[Ti(1)]), NaN)
 # init_popgrid!(populationgrid, incursionpoints[:Seisia], 1.0e6)
 populationgridaus += (growthmaskaus[Ti(1)].>0) .* carrycap
 ```
@@ -22,15 +22,12 @@ Run the simulation in a DynamicGridsInteract window:
 
 ```{julia; results=hidden}
 using DynamicGridsInteract
-# using DynamicGridsGtk
-
-################### THIS SHOWS THAT GROWTH RATES ARE TOO HIGH ALL ROUND
 # output = GtkOutput(
 output = InteractOutput(
     (population=populationgridaus,);
     ruleset=dispersalruleset,
     mask=boolmaskaus,
-    aux=(growthrates=growthrates_zeromissingaus,),
+    aux=(growthrates=growthrates_zeromissingaus2016,),
     tspan=aus_tspan,
     store=true,
     processor=inferno,
@@ -40,64 +37,76 @@ output = InteractOutput(
 display(output)
 sim!(output, dispersalruleset)
 ```
-Plot seasonal activity for each GRDC region
+Plot seasonal activity for each GRDC region for year 2016 to 2019
 
 ```{julia; results=hidden}
 using DataFrames, CSV, NCDatasets
+# set year and index dict
+iyear = "2016"
+GRdict = Dict([
+    ("2016", growthrates_zeromissingaus2016),
+    ("2017", growthrates_zeromissingaus2017),
+    ("2018", growthrates_zeromissingaus2018),
+    ("2019", growthrates_zeromissingaus2019)])
 
-output = ArrayOutput((population=populationgridaus,);
-    mask=boolmask,
-    aux=(growthrates=growthrates_zeromissingaus,),
-    tspan=tspan,
-)
-@time sim!(output, dispersalruleset)
+for iyear in ("2016","2017","2018","2019")
 
-mysubset=Vector{Int}(undef,12)
-for c = 1:12
-    println(c)
-    mysubset[c] =
-        findall((tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
-end
-aus_tspan[mysubset]
-
-for i in mysubset
-    write(string("output/aus_spread/", Date(aus_tspan[i]), ".ncd"), NCDarray, output[i][:population])
-end
-
-GRDCregion = CSV.read("data/growingregion_coords.csv")
-d = DataFrame(
-    GRDCregion = String[],
-    rep = Int[],
-    date = Date[],
-    lon = Float64[],
-    lat = Float64[],
-    popsize = Float64[],
-)
-popxy = zeros(length(aus_tspan))
-nreps = 100
-for rep in 1:nreps
-    println(rep, " of ", nreps)
+    output = ArrayOutput((population=populationgridaus,);
+        mask=boolmaskaus,
+        aux=(growthrates=GRdict[iyear],),
+        tspan=aus_tspan,
+    )
     @time sim!(output, dispersalruleset)
-    p=plot()
-    for i in 1:size(GRDCregion, 1)
-        iloc = GRDCregion.Region[i]
-        x = GRDCregion.Longitude[i]
-        y = GRDCregion.Latitude[i]
-            for j in 1:length(aus_tspan)
-                popxy[j] = output[j][:population][Lat(Contains(y)), Lon(Contains(x))]
-                push!(d, (iloc, rep, tspan[j], x, y, popxy[j]))
-            end
-            plot!(p, tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
-                xticks = tspan[1]:Month(6):tspan[2], label=iloc)
+
+    mysubset=Vector{Int}(undef,12)
+    for c = 1:12
+        println(c)
+        # get monthly seasonality in third year
+        mysubset[c] =
+            findall((aus_tspan .>= Date(2022,1,1) + Month(c - 1)))[1]
     end
-    display(p)
+    aus_tspan[mysubset]
+
+    for i in mysubset
+        # hack date and save output
+        write(string("output/aus_spread/", replace(string(Date(aus_tspan[i])), "2022"=>iyear), ".ncd"), NCDarray, output[i][:population])
+    end
+
+    GRDCregion = CSV.read("data/growingregion_coords.csv")
+    d = DataFrame(
+        GRDCregion = String[],
+        rep = Int[],
+        date = Date[],
+        lon = Float64[],
+        lat = Float64[],
+        popsize = Float64[],
+    )
+    popxy = zeros(length(aus_tspan))
+    nreps = 100
+    for rep in 1:nreps
+        println(rep, " of ", nreps)
+        @time sim!(output, dispersalruleset)
+        p=plot()
+        for i in 1:size(GRDCregion, 1)
+            iloc = GRDCregion.Region[i]
+            x = GRDCregion.Longitude[i]
+            y = GRDCregion.Latitude[i]
+                for j in 1:length(aus_tspan)
+                    popxy[j] = output[j][:population][Lat(Contains(y)), Lon(Contains(x))]
+                    push!(d, (iloc, rep, aus_tspan[j], x, y, popxy[j]))
+                end
+                plot!(p, aus_tspan, (popxy .- minimum(popxy))./(maximum(popxy) .- minimum(popxy)) ,
+                    xticks = aus_tspan[1]:Month(6):aus_tspan[2], label=iloc)
+        end
+        # display(p)
+    end
+
+
+    ifilename = string("output/GRDC_region_FAW_activity_",iyear,".png" )
+    savefig(ifilename)
+    replace(ifilename,  ".png" => ".csv")
+    CSV.write(replace(ifilename,  ".png" => ".csv"), d)
 end
-
-
-ifilename = string("output/GRDC_region_FAW_activity.png" )
-savefig(ifilename)
-replace(ifilename,  ".png" => ".csv")
-CSV.write(replace(ifilename,  ".png" => ".csv"), d)
 ```
 
 Run simulation for USA and plot against trap data

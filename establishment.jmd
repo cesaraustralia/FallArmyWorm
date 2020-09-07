@@ -129,17 +129,18 @@ that use the same source data, like `(growth, heatstress, coldstress)`.
 Using the monthly aggregated SMAP dataset
 
 ```julia; results=hidden
-smap_folder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
-# smap_folder = "/home/raf/Work/cesar/Data/SMAP"
-# smap_folder = "F:/SMAP/SMAP_monthly_midpoint_subset"
-# smap_folder = "F:/SMAP/SMAP_L4_SM_gph_v4"
+# smapfolder = "/home/raf/Data/SMAP/SMAP_L4_SM_gph_v4"
+# smapfolder = "/home/raf/Work/cesar/Data/SMAP"
+# smapfolder = "F:/SMAP/SMAP_monthly_midpoint_subset"
+smapfolder = "E:/SMAP/SMAP_L4_SM_gph_v4"
 
 # This is no longer needed as SMAPseries uses regex and is fast
 # smapfiles = joinpath.(smap_folder, [f for f in readdir(smap_folder) if occursin(r".h5$", f) && occursin("_2018" , f)])
 # smapfiles = smapfiles[match.(r"01T|08T|16T|24T", smapfiles) .!= nothing]
 # This does the same as the above
 days = (1, 8, 16, 24)
-series = SMAPseries(smapfolder)[Where(t -> (t >= DateTime(2018) && t < DateTime(2019)) && dayofmonth(t) in days)]
+seriesall = SMAPseries(smapfolder)
+series = seriesall[Where(t -> (t >= DateTime(2018) && t < DateTime(2019)) && dayofmonth(t) in days)]
 # series = seriesall[Where(t -> dayofmonth(t) in days)]
 # series = series[Where(t -> year(t) in 2017)]
 ```
@@ -221,7 +222,8 @@ wiltthresh = .5
 wiltmort = -0.2
 wiltstress = Layer(:land_fraction_wilting, WiltStress(wiltthresh, wiltmort));
 ```
-check that yeme can be fit
+check that yemen can be fit
+
 ```julia; results=hidden
 yemen = Lon(Between(-30.0, 55.0)), Lat(Between(-30, 20))
 stress = mapgrowth(growthresponse, coldstress, wiltstress, heatstress;
@@ -383,19 +385,20 @@ wiltstress, coldstress, heatstress = wrapper.model
 
 Now we will put together decent population growth maps for use in other simulations using the higher resolution data, with a monthly timestep:
 
-Fit a model across the whole year to see where population growth is on average positive across the year.
+Fit a model across the whole year to see where population growth is on average positive across the year. Let's save it as a NetCDF file:
 
 ```julia; results=hidden
-growthrates = mapgrowth((growthresponse, wiltstress, coldstress, heatstress),
-    series=series,
-    tspan=DateTime(2018, 1):Month(1):DateTime(2018, 12)
-);
+iyear=2016
+for iyear in 2016:2019
+    series = seriesall[Where(t -> (t >= DateTime(iyear) && t < DateTime(iyear + 1)) && dayofmonth(t) in days)]
+    growthrates = mapgrowth((growthresponse, wiltstress, coldstress, heatstress),
+        series=series,
+        tspan=DateTime(iyear, 1):Month(1):DateTime(iyear, 12)
+    );
+    growthratesfilepath = joinpath(basedir, string("data/growthrates",iyear,".ncd"))
+    write(growthratesfilepath, NCDarray, growthrates)
+end
 ```
 
 This is ready to use for estimating establishment potential, or in a dispersal
-simulation using Dispersal.jl. Let's save it as a NetCDF file:
-
-```julia; results=hidden
-growthratesfilepath = joinpath(basedir, "data/growthrates.ncd")
-write(growthratesfilepath, NCDarray, growthrates)
-```
+simulation using Dispersal.jl.
